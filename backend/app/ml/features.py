@@ -3,12 +3,11 @@
 All historical aggregations are careful to use only completed shipments
 with outcomes available before the shipment's `etd` to avoid data leakage.
 """
-from datetime import date
-from typing import Dict, Any
+from typing import Any, Dict
 
 from sqlalchemy.orm import Session
 
-from app.entities import Shipment, ShipmentHistory, Carrier, Route
+from app.entities import Route, Shipment
 
 
 def carrier_on_time_pct_as_of(db: Session, shipment: Shipment) -> float:

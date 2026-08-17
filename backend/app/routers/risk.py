@@ -1,6 +1,9 @@
+from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
+from joblib import load
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db import get_db
 from app.deps import get_current_user
 from app.entities import RiskScore, Shipment
@@ -38,4 +41,25 @@ def risk_summary(db: Session = Depends(get_db)):
 
 @router.get("/metrics", response_model=ModelMetrics)
 def model_metrics():
+    settings = get_settings()
+    model_path = Path(settings.model_path)
+    if not model_path.is_absolute():
+        # resolve relative to backend package directory
+        model_path = Path(__file__).resolve().parents[1] / "ml" / "model.joblib"
+
+    if model_path.exists():
+        try:
+            artifact = load(model_path)
+            if isinstance(artifact, dict) and "metrics" in artifact:
+                m = artifact["metrics"]
+                return ModelMetrics(
+                    precision=float(m.get("precision", MODEL_METRICS["precision"])),
+                    recall=float(m.get("recall", MODEL_METRICS["recall"])),
+                    f1_score=float(m.get("f1_score", MODEL_METRICS["f1_score"])),
+                    roc_auc=float(m.get("roc_auc") if m.get("roc_auc") is not None else MODEL_METRICS["roc_auc"]),
+                    target_definition=MODEL_METRICS["target_definition"],
+                    leakage_guardrail=MODEL_METRICS["leakage_guardrail"],
+                )
+        except Exception:
+            pass
     return MODEL_METRICS

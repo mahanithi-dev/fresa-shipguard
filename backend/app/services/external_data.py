@@ -1,9 +1,8 @@
 import json
 import logging
 import urllib.request
-import urllib.error
-from datetime import date, datetime, timedelta
-from typing import Any, Dict, List, Optional
+from datetime import date, datetime
+from typing import Any, Dict, Optional
 
 from sqlalchemy.orm import Session
 

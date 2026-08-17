@@ -1,6 +1,7 @@
 from functools import lru_cache
+from pathlib import Path
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, DotEnvSettingsSource
 
 
 class Settings(BaseSettings):
@@ -31,19 +32,16 @@ class Settings(BaseSettings):
     gemini_daily_quota: int = 500
     nvidia_daily_quota: int = 500
 
-
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+
         # Fallback to .env.example if .env doesn't exist
         @classmethod
         def customise_sources(cls, init_settings, env_settings, dotenv_settings, file_secret_settings):
             if not dotenv_settings:
-                from pydantic_settings import BaseSettings
-                from pathlib import Path
                 env_example = Path(__file__).parent.parent / ".env.example"
                 if env_example.exists():
-                    from pydantic_settings.sources import DotEnvSettingsSource
                     return (
                         init_settings,
                         env_settings,

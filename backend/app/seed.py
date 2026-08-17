@@ -1,12 +1,6 @@
-import random
-from datetime import date, datetime, timedelta
-
 from sqlalchemy.orm import Session
 
-from app.entities import Carrier, Route, Shipment, ShipmentHistory, User
-from app.services.security import hash_password
-
-
+from app.entities import Shipment
 from app.services.ai_generator import generate_ai_shipments
 
 

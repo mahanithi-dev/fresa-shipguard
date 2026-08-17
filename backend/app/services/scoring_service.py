@@ -2,20 +2,17 @@ import json
 import math
 from datetime import date, datetime, timedelta
 
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.entities import (
-    Carrier,
     ExternalCurrency,
     ExternalHoliday,
     ExternalPortStatus,
     ExternalWeather,
     RiskScore,
-    Route,
     Shipment,
-    ShipmentHistory,
 )
+from app.ml.features import carrier_on_time_pct_as_of, route_avg_delay_days_as_of
 
 
 RECOMMENDATIONS = {
@@ -37,42 +34,9 @@ def _sigmoid(x: float) -> float:
     return 1 / (1 + math.exp(-x))
 
 
-def _route_delay_as_of(db: Session, shipment: Shipment) -> float:
-    # Uses SHIPMENT_HISTORY -> SHIPMENTS -> ROUTES and only outcomes before this shipment ETD.
-    # Calculate average historical delay for the route using only history
-    # records that occurred before the current shipment's ETD to avoid leakage.
-    etd_dt = datetime.combine(shipment.etd, datetime.min.time()) if isinstance(shipment.etd, date) and not isinstance(shipment.etd, datetime) else shipment.etd
-    avg_delay = (
-        db.query(func.avg(ShipmentHistory.delay_days))
-        .join(Shipment, Shipment.shipment_id == ShipmentHistory.shipment_id)
-        .filter(Shipment.route_id == shipment.route_id)
-        .filter(ShipmentHistory.event_ts.isnot(None))
-        .filter(ShipmentHistory.event_ts < etd_dt)
-        .scalar()
-    )
-    return float(avg_delay or 0)
-
-
-def _carrier_reliability_as_of(db: Session, shipment: Shipment) -> float:
-    # Compute carrier reliability based only on prior shipments that completed
-    # before this shipment's ETD. Use actual_arrival when present; fall back to
-    # the carrier's stored historical percentage if no prior data exists.
-    rows = (
-        db.query(Shipment)
-        .filter(Shipment.carrier_id == shipment.carrier_id)
-        .filter(Shipment.actual_arrival.isnot(None))
-        .filter(Shipment.actual_arrival < shipment.etd)
-        .all()
-    )
-    if not rows:
-        return float(shipment.carrier.on_time_pct_hist or 70)
-    on_time = sum(1 for row in rows if (row.actual_arrival - row.eta).days <= 1)
-    return round((on_time / len(rows)) * 100, 2)
-
-
 def score_shipment(db: Session, shipment: Shipment) -> RiskScore:
-    route_delay = _route_delay_as_of(db, shipment)
-    carrier_on_time = _carrier_reliability_as_of(db, shipment)
+    route_delay = route_avg_delay_days_as_of(db, shipment)
+    carrier_on_time = carrier_on_time_pct_as_of(db, shipment)
     planned_days = max((shipment.eta - shipment.etd).days, 1)
     route_avg = float(shipment.route.avg_transit_days or planned_days)
     transit_vs_avg = planned_days - route_avg

@@ -1,5 +1,5 @@
 import os
-from typing import List, Optional
+from typing import List
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session

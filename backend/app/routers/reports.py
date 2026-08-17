@@ -4,12 +4,11 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Response
-from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from app.db import get_db
 from app.deps import get_current_user
-from app.entities import Carrier, RiskScore, Route, Shipment, User
+from app.entities import Carrier, RiskScore, Route, Shipment
 
 router = APIRouter(prefix="/reports", tags=["reports"], dependencies=[Depends(get_current_user)])
 

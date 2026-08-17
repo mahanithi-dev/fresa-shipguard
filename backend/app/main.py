@@ -1,9 +1,11 @@
-from fastapi import FastAPI
+import logging
+from pathlib import Path
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from fastapi import HTTPException
-from pathlib import Path
+
+logger = logging.getLogger("shipguard.main")
 
 from app.config import get_settings
 from app.db import Base, SessionLocal, engine
@@ -17,9 +19,11 @@ from app.services.scoring_service import score_active_shipments
 settings = get_settings()
 app = FastAPI(title="ShipGuard API", version="1.0.0")
 
+allowed_origins = [origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"https?://.*",
+    allow_origins=allowed_origins if allowed_origins else ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -65,13 +69,13 @@ def startup():
         try:
             sync_all_external_data(db, force=False)
         except Exception as exc:
-            print("External data sync notice:", exc)
+            logger.warning("External data sync notice: %s", exc)
         score_active_shipments(db)
         # build retrieval index for RAG
         try:
             build_index(db)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Retrieval index build notice: %s", exc)
     finally:
         db.close()
 

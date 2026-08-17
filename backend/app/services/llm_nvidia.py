@@ -1,7 +1,6 @@
 import json
 import logging
 import urllib.request
-import urllib.error
 from typing import Optional
 
 from app.config import get_settings

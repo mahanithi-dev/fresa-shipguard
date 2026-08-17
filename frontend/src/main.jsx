@@ -3,8 +3,8 @@ import { createRoot } from "react-dom/client";
 import { 
   AlertTriangle, Bot, Boxes, CalendarClock, Check, Copy, Filter, 
   Loader2, LogIn, PackagePlus, RefreshCcw, Search, Send, ShieldCheck, 
-  Sparkles, X, LayoutDashboard, Globe, Truck, FileText, Settings, 
-  ChevronRight, LogOut, ExternalLink, ArrowUpRight, TrendingUp, Anchor, CloudSun, DollarSign
+  Sparkles, X, LayoutDashboard, Globe, Truck, FileText, 
+  ChevronRight, LogOut, Anchor, CloudSun, DollarSign
 } from "lucide-react";
 import "./styles.css";
 
@@ -528,6 +528,7 @@ function Dashboard({ token, onLogout, onNavigateHome }) {
       showToast("CSV Manifest exported successfully!");
     } catch (err) {
       setError(err.message);
+      showToast(err.message || "Failed to export CSV report", "error");
     } finally {
       setExportLoading(false);
     }

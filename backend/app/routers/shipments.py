@@ -2,14 +2,12 @@ import csv
 import io
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Query
-from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from app.db import get_db
 from app.deps import get_current_user
-from app.entities import Shipment
+from app.entities import RiskScore, Shipment
 from app.models.schemas import ImportResult, ShipmentCreate, ShipmentDetail, ShipmentSummary, ShipmentUpdate, PaginatedShipments
-from app.entities import RiskScore
 from app.services.scoring_service import risk_to_dict, score_shipment
 
 
@@ -123,9 +121,13 @@ async def import_shipments(file: UploadFile = File(...), db: Session = Depends(g
     for index, row in enumerate(reader, start=2):
         try:
             payload = ShipmentCreate(**row)
-            db.add(Shipment(**payload.model_dump()))
+            shipment = Shipment(**payload.model_dump())
+            db.add(shipment)
+            db.flush()
+            score_shipment(db, shipment)
             imported += 1
         except Exception as exc:
-            errors.append(f"line {index}: {exc}")
+            db.rollback()
+            errors.append(f"Line {index}: {exc}")
     db.commit()
     return ImportResult(imported=imported, errors=errors)

@@ -1,5 +1,4 @@
 from datetime import date, datetime
-from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -64,6 +63,12 @@ class ShipmentUpdate(BaseModel):
     eta: date | None = None
     actual_arrival: date | None = None
     status: str | None = None
+
+    @model_validator(mode="after")
+    def check_dates(self):
+        if self.eta is not None and self.etd is not None and self.eta < self.etd:
+            raise ValueError("eta must be greater than or equal to etd")
+        return self
 
 
 class Factor(BaseModel):
