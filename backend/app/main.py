@@ -39,6 +39,11 @@ app.include_router(external_router.router, prefix="/api/v1")
 app.include_router(reports.router, prefix="/api/v1")
 
 
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
 # Serve built frontend so API and SPA share the same origin (avoids CORS/relative fetch issues)
 frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 index_file = frontend_dist / "index.html"
@@ -55,7 +60,7 @@ if frontend_dist.exists() and index_file.exists():
     @app.get("/{full_path:path}", include_in_schema=False)
     def spa_catchall(full_path: str):
         # allow API routes to be handled by routers
-        if full_path.startswith("api/"):
+        if full_path.startswith("api/") or full_path == "health":
             raise HTTPException(status_code=404)
         return FileResponse(str(index_file))
 
@@ -78,8 +83,3 @@ def startup():
             logger.warning("Retrieval index build notice: %s", exc)
     finally:
         db.close()
-
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}
