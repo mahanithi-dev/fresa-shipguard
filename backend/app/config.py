@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     nvidia_model: str | None = None
     # Google Gemini API configuration
     gemini_api_key: str | None = None
-    gemini_model: str = "gemini-3.6-flash"
+    gemini_model: str = "gemini-2.0-flash"
     # Rate Limiting configuration for AI Endpoints (Gemini & NVIDIA)
     ai_rate_limit_per_minute: int = 15
     ai_rate_limit_per_hour: int = 200
@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     nvidia_daily_quota: int = 500
 
     class Config:
-        env_file = ".env"
+        env_file = str(Path(__file__).resolve().parents[1] / ".env")
         env_file_encoding = "utf-8"
 
         # Fallback to .env.example if .env doesn't exist

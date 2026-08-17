@@ -1499,7 +1499,7 @@ function ChatWidget({ client }) {
               <div>
                 <strong style={{ fontSize: 14, display: "block" }}>ShipGuard AI Co-Pilot</strong>
                 <span style={{ fontSize: 11, background: "rgba(255, 255, 255, 0.2)", padding: "2px 6px", borderRadius: 4 }}>
-                  gemini-3.6-flash
+                  gemini-2.0-flash
                 </span>
               </div>
             </div>

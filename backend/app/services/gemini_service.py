@@ -163,24 +163,133 @@ def chat_with_gemini(messages: List[Dict[str, str]], db: Session) -> Dict[str, A
 
 
 def generate_logistics_chat_fallback(query: str, db: Session) -> str:
-    """Intelligent fallback chat responses using database entities and operations rules."""
-    q_lower = query.lower()
-    if "high risk" in q_lower or "risk" in q_lower or "alert" in q_lower or "summarize" in q_lower:
+    """Intelligent, multi-intent fallback chat engine that dynamically answers queries using live database context."""
+    from app.entities import ExternalPortStatus, ExternalWeather
+
+    q_lower = query.lower().strip()
+
+    # 1. Check for specific shipment reference lookup (e.g., SHP-2026-A0001 or any ref match)
+    import re
+    ref_match = re.search(r"(shp[-\w\d]+)", q_lower)
+    if ref_match:
+        target_ref = ref_match.group(1).upper()
+        s = db.query(Shipment).filter(Shipment.shipment_ref.ilike(f"%{target_ref}%")).first()
+        if s:
+            tier = s.risk_score.risk_tier if s.risk_score else "UNSCORED"
+            score = round((s.risk_score.risk_score or 0) * 100) if s.risk_score else 0
+            carrier_name = s.carrier.carrier_name if s.carrier else "Unknown Carrier"
+            route_str = f"{s.route.origin_port} -> {s.route.dest_port}" if s.route else "Unknown Route"
+            disruption = getattr(s, "disruption_event", None) or "None reported"
+
+            factors_summary = "Standard route variance"
+            if s.risk_score and s.risk_score.top_factors:
+                try:
+                    f_list = json.loads(s.risk_score.top_factors)
+                    factors_summary = ", ".join([f"{f.get('factor')}: {f.get('value', '')}" for f in f_list[:3]])
+                except Exception:
+                    pass
+
+            return (
+                f"📦 **Shipment Analysis: {s.shipment_ref}**\n\n"
+                f"• **Status:** {s.status} | **Risk Level:** {tier} ({score}%)\n"
+                f"• **Carrier:** {carrier_name} ({s.carrier.carrier_code if s.carrier else 'N/A'})\n"
+                f"• **Trade Lane:** {route_str} ({s.mode})\n"
+                f"• **Schedule:** ETD {s.etd} → ETA {s.eta}\n"
+                f"• **Disruption Alert:** {disruption}\n"
+                f"• **Contributing Factors:** {factors_summary}\n\n"
+                f"**Recommended Next Action:** {s.risk_score.recommendation if s.risk_score else 'Monitor milestone tracking updates.'}"
+            )
+
+    # 2. Check for port / weather / congestion queries
+    ports = ["rotterdam", "shanghai", "hamburg", "singapore", "jebel ali", "los angeles", "chennai", "tuticorin", "bengaluru", "mumbai", "frankfurt", "london", "ningbo", "shenzhen", "delhi"]
+    matched_port = next((p for p in ports if p in q_lower), None)
+    if matched_port:
+        w = db.query(ExternalWeather).filter(ExternalWeather.port_name.ilike(f"%{matched_port}%")).first()
+        p = db.query(ExternalPortStatus).filter(ExternalPortStatus.port_name.ilike(f"%{matched_port}%")).first()
+        port_title = matched_port.capitalize()
+        details = []
+        if w:
+            details.append(f"• **Weather:** {w.weather_condition} ({w.temperature_c}°C, {w.wind_speed_kmh} km/h wind, {w.precipitation_mm}mm rain)")
+        if p:
+            details.append(f"• **Terminal Congestion:** {p.congestion_level} (Avg Vessel Wait: {p.avg_vessel_wait_hours} hrs)")
+
+        active_in_port = db.query(Shipment).join(Route).filter(Route.dest_port.ilike(f"%{matched_port}%") | Route.origin_port.ilike(f"%{matched_port}%")).count()
+        details.append(f"• **Active Shipments on Lane:** {active_in_port} shipment(s) currently routed through this hub.")
+
+        return f"⚓ **Live Port & Weather Intelligence for {port_title}:**\n\n" + "\n".join(details) + "\n\n**Operational Advisory:** Factor berth waiting times into estimated delivery dates for consignee communications."
+
+    # 3. Check for high risk or risk summary queries
+    if "high risk" in q_lower or "risk" in q_lower or "alert" in q_lower or "summarize" in q_lower or "exception" in q_lower:
         high_shipments = db.query(Shipment).join(RiskScore).filter(RiskScore.risk_tier == "HIGH").limit(5).all()
         if high_shipments:
-            lines = [f"• **{s.shipment_ref}** ({s.carrier.carrier_name if s.carrier else 'Carrier'}) — {s.route.origin_port} -> {s.route.dest_port} (ETA: {s.eta})" for s in high_shipments]
-            return "🚨 **High-Risk Exception Overview:**\n\nCurrently, the following critical shipments require immediate attention:\n\n" + "\n".join(lines) + "\n\n**Recommended Action:** Contact carriers to verify container milestone timestamps and prepare alternate feeder connections."
+            lines = [f"• **{s.shipment_ref}** ({s.carrier.carrier_name if s.carrier else 'Carrier'}) — {s.route.origin_port} -> {s.route.dest_port} (ETA: {s.eta}, Score: {round((s.risk_score.risk_score or 0)*100)}%)" for s in high_shipments]
+            return "🚨 **High-Risk Exception Overview:**\n\nCurrently, the following critical shipments require proactive intervention:\n\n" + "\n".join(lines) + "\n\n**Recommended Action:** Contact carriers to verify container milestone timestamps and prepare alternate feeder connections."
         return "✅ **Good News:** There are currently no critical high-risk shipments detected in the active work queue."
 
-    if "carrier" in q_lower or "reliability" in q_lower or "delay" in q_lower:
-        carriers = db.query(Carrier).order_by(Carrier.on_time_pct_hist.desc()).limit(5).all()
+    # 4. Check for carrier performance / reliability queries
+    carriers_names = ["maersk", "msc", "cma", "hapag", "one", "dhl", "cathay", "blue dart"]
+    matched_carrier = next((c for c in carriers_names if c in q_lower), None)
+    if matched_carrier:
+        c = db.query(Carrier).filter(Carrier.carrier_name.ilike(f"%{matched_carrier}%") | Carrier.carrier_code.ilike(f"%{matched_carrier}%")).first()
+        if c:
+            shipments_count = db.query(Shipment).filter(Shipment.carrier_id == c.carrier_id).count()
+            delayed_count = db.query(Shipment).filter(Shipment.carrier_id == c.carrier_id, Shipment.status == "DELAYED").count()
+            return (
+                f"🚢 **Carrier Scorecard: {c.carrier_name} ({c.carrier_code})**\n\n"
+                f"• **Historical On-Time Rate:** {c.on_time_pct_hist:.1f}%\n"
+                f"• **Active Network Shipments:** {shipments_count}\n"
+                f"• **Delayed Volume:** {delayed_count} shipment(s)\n"
+                f"• **SLA Reliability Tier:** {'Tier 1 (High Reliability)' if c.on_time_pct_hist >= 80 else 'Tier 2 (Moderate Variance)' if c.on_time_pct_hist >= 70 else 'Tier 3 (Elevated Delay Risk)'}\n\n"
+                f"**Recommendation:** Use for priority trade lanes when historical SLA exceeds 75%."
+            )
+
+    if "carrier" in q_lower or "reliability" in q_lower:
+        carriers = db.query(Carrier).order_by(Carrier.on_time_pct_hist.desc()).limit(6).all()
         lines = [f"• **{c.carrier_name}** ({c.carrier_code}): {c.on_time_pct_hist:.1f}% on-time rate" for c in carriers]
-        return "🚢 **Carrier Reliability Summary:**\n\n" + "\n".join(lines) + "\n\n**Insight:** Prioritize high-value bookings with carriers meeting SLA thresholds above 75%."
+        return "🚢 **Carrier Reliability Leaderboard:**\n\n" + "\n".join(lines) + "\n\n**Operational Insight:** Prioritize high-value bookings with carriers meeting SLA thresholds above 75%."
 
-    if "email" in q_lower or "draft" in q_lower:
-        return "✉️ **Draft Delay Notification Email:**\n\n**Subject:** Delay Notification - Shipment Update for Ref #[Shipment Ref]\n\nDear Consignee Operations Team,\n\nPlease be advised that due to unforeseen port congestion and transit variance on the scheduled trade lane, the estimated arrival for shipment **[Shipment Ref]** has been adjusted to **[New ETA]**.\n\nOur logistics desk is actively tracking milestone checkpoint scans with carrier dispatch to minimize dwell time.\n\nBest regards,\n**ShipGuard Operations Desk**"
+    # 5. Check for email draft / notification queries
+    if "email" in q_lower or "draft" in q_lower or "notify" in q_lower or "template" in q_lower:
+        sample_shipment = db.query(Shipment).join(RiskScore).filter(RiskScore.risk_tier == "HIGH").first()
+        ref = sample_shipment.shipment_ref if sample_shipment else "SHP-2026-A0001"
+        carrier = sample_shipment.carrier.carrier_name if sample_shipment and sample_shipment.carrier else "Ocean Network Express"
+        eta = str(sample_shipment.eta) if sample_shipment else "Tomorrow"
+        return (
+            f"✉️ **Draft Delay Exception Notification Email:**\n\n"
+            f"**Subject:** Shipment Delay Update — Ref #{ref}\n\n"
+            f"Dear Customer Operations Team,\n\n"
+            f"Please be advised that due to unforeseen transshipment congestion on the scheduled trade lane, the estimated arrival for shipment **{ref}** with **{carrier}** has been updated to **{eta}**.\n\n"
+            f"Our operations desk is actively tracking milestone checkpoint scans with carrier dispatch to minimize port dwell time and expedite destination customs clearance.\n\n"
+            f"We will provide our next scheduled checkpoint update within 12 hours.\n\n"
+            f"Best regards,\n"
+            f"**ShipGuard Operations Desk**"
+        )
 
-    return "👋 **ShipGuard Logistics Co-Pilot:**\n\nI am monitoring live trade lane status, carrier performance, and port congestion across your freight network.\n\nYou can ask me to:\n- 🚨 *'Summarize high risk shipments'*\n- 🚢 *'Analyze carrier on-time performance'*\n- ✉️ *'Draft a delay notification email'*\n- 💡 *'Suggest route mitigations'*"
+    # 6. Check for mitigation / recommendation queries
+    if "mitigat" in q_lower or "action" in q_lower or "suggest" in q_lower or "recommend" in q_lower or "solution" in q_lower:
+        return (
+            "💡 **Logistics Risk Mitigation Playbook:**\n\n"
+            "1. **High Congestion Trade Lanes:** Pre-book customs clearance manifests 48 hours prior to vessel arrival to avoid demurrage penalties.\n"
+            "2. **Reefer & Cold-Chain Cargo:** Enable automated IoT container temperature telemetry alerts and prioritize dedicated drayage transport.\n"
+            "3. **Carrier Escalations:** For delays exceeding 48 hours, trigger alternate feeder routing or request prioritized terminal discharge."
+        )
+
+    # 7. Default smart greeting & operational overview
+    total_count = db.query(Shipment).count()
+    high_count = db.query(Shipment).join(RiskScore).filter(RiskScore.risk_tier == "HIGH").count()
+    delayed_count = db.query(Shipment).filter(Shipment.status == "DELAYED").count()
+
+    return (
+        f"👋 **ShipGuard Logistics Co-Pilot Active**\n\n"
+        f"I am actively monitoring **{total_count} shipments** across your global forwarding network. Currently tracking **{high_count} high-risk exceptions** and **{delayed_count} delayed shipments**.\n\n"
+        f"**What would you like to do?**\n"
+        f"• 🚨 *'Summarize high risk shipments'*\n"
+        f"• 🚢 *'Analyze carrier reliability'*\n"
+        f"• ⚓ *'Check Rotterdam port weather and congestion'*\n"
+        f"• 📦 *'Inspect shipment SHP-2026-A0001'*\n"
+        f"• ✉️ *'Draft a delay notification email'*\n"
+        f"• 💡 *'Suggest route mitigations'*"
+    )
 
 
 
