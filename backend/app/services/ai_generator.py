@@ -121,10 +121,10 @@ def generate_ai_shipments(db: Session, count: int = 160) -> int:
     # Step 1: Ensure Admin & Ops users exist
     admin_user = db.query(User).filter_by(email="fresa_admin").first()
     if not admin_user:
-        admin_user = User(name="Fresa Admin", email="fresa_admin", password_hash=hash_password("123"), role="ADMIN")
+        admin_user = User(name="Fresa Admin", email="fresa_admin", password_hash=hash_password("admin123"), role="ADMIN")
         db.add(admin_user)
     else:
-        admin_user.password_hash = hash_password("123")
+        admin_user.password_hash = hash_password("admin123")
         admin_user.role = "ADMIN"
     
     user = db.query(User).filter_by(email="ops@shipguard.local").first()

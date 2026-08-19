@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     min_password_length: int = 8
 
     model_config = SettingsConfigDict(
-        env_file=str(Path(__file__).resolve().parents[1] / ".env"),
+        env_file=str(Path(__file__).resolve().parent / "backend" / ".env"),
         env_file_encoding="utf-8",
         extra="ignore"
     )

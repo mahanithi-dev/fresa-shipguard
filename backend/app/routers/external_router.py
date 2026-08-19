@@ -112,8 +112,12 @@ def get_shipment_external_intelligence(shipment_id: int, db: Session = Depends(g
     }
 
 
-@router.post("/sync")
+from app.services.rate_limiter import check_sync_rate_limit
+
+
+@router.post("/sync", dependencies=[Depends(check_sync_rate_limit)])
 def trigger_external_sync(db: Session = Depends(get_db)):
     result = sync_all_external_data(db, force=True)
     score_active_shipments(db)
     return result
+

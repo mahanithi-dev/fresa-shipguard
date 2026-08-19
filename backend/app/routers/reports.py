@@ -67,23 +67,26 @@ def export_shipments_csv(
         risk_tier_val = s.risk_score.risk_tier if s.risk_score else "UNSCORED"
         risk_score_pct = round((s.risk_score.risk_score or 0) * 100) if s.risk_score else 0
 
+        # Protect against CSV / Formula Injection
+        from app.services.security import sanitize_csv_cell
+
         writer.writerow([
-            s.shipment_ref,
-            carrier_name,
-            carrier_code,
-            s.mode,
-            origin,
-            dest,
-            str(s.etd) if s.etd else "",
-            str(s.eta) if s.eta else "",
-            str(s.actual_arrival) if s.actual_arrival else "",
-            s.status,
-            risk_tier_val,
-            risk_score_pct,
-            getattr(s, "container_no", "") or "",
-            getattr(s, "vessel_name", "") or "",
-            getattr(s, "disruption_event", "") or "",
-            getattr(s, "consignee", "") or "",
+            sanitize_csv_cell(s.shipment_ref),
+            sanitize_csv_cell(carrier_name),
+            sanitize_csv_cell(carrier_code),
+            sanitize_csv_cell(s.mode),
+            sanitize_csv_cell(origin),
+            sanitize_csv_cell(dest),
+            sanitize_csv_cell(str(s.etd) if s.etd else ""),
+            sanitize_csv_cell(str(s.eta) if s.eta else ""),
+            sanitize_csv_cell(str(s.actual_arrival) if s.actual_arrival else ""),
+            sanitize_csv_cell(s.status),
+            sanitize_csv_cell(risk_tier_val),
+            sanitize_csv_cell(str(risk_score_pct)),
+            sanitize_csv_cell(getattr(s, "container_no", "") or ""),
+            sanitize_csv_cell(getattr(s, "vessel_name", "") or ""),
+            sanitize_csv_cell(getattr(s, "disruption_event", "") or ""),
+            sanitize_csv_cell(getattr(s, "consignee", "") or ""),
         ])
 
     csv_data = output.getvalue()
@@ -92,8 +95,12 @@ def export_shipments_csv(
     return Response(
         content=csv_data,
         media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename={filename}"},
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Content-Type-Options": "nosniff",
+        },
     )
+
 
 
 @router.get("/summary")

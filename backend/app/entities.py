@@ -9,7 +9,7 @@ from app.db import Base
 class Carrier(Base):
     __tablename__ = "carriers"
 
-    carrier_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    carrier_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     carrier_name: Mapped[str] = mapped_column(String(100), nullable=False)
     carrier_code: Mapped[str | None] = mapped_column(String(10), unique=True)
     on_time_pct_hist: Mapped[float] = mapped_column(Float, default=0)
@@ -22,7 +22,7 @@ class Route(Base):
     __tablename__ = "routes"
     __table_args__ = (UniqueConstraint("origin_port", "dest_port", "mode", name="uq_route"),)
 
-    route_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    route_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     origin_port: Mapped[str] = mapped_column(String(80), nullable=False)
     dest_port: Mapped[str] = mapped_column(String(80), nullable=False)
     mode: Mapped[str] = mapped_column(String(10), nullable=False)
@@ -37,7 +37,7 @@ class Shipment(Base):
         CheckConstraint("eta >= etd", name="chk_eta_after_etd"),
     )
 
-    shipment_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    shipment_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     shipment_ref: Mapped[str] = mapped_column(String(30), unique=True, nullable=False)
     carrier_id: Mapped[int] = mapped_column(ForeignKey("carriers.carrier_id"))
     route_id: Mapped[int] = mapped_column(ForeignKey("routes.route_id"))
@@ -62,7 +62,7 @@ class Shipment(Base):
 class ShipmentHistory(Base):
     __tablename__ = "shipment_history"
 
-    history_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    history_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     shipment_id: Mapped[int] = mapped_column(ForeignKey("shipments.shipment_id"))
     event_type: Mapped[str] = mapped_column(String(30))
     event_ts: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -87,7 +87,7 @@ class RiskScore(Base):
 class User(Base):
     __tablename__ = "users"
 
-    user_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     email: Mapped[str] = mapped_column(String(150), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -97,7 +97,7 @@ class User(Base):
 class ExternalWeather(Base):
     __tablename__ = "external_weather"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
     port_name: Mapped[str] = mapped_column(String(100), index=True, nullable=False)
     country_code: Mapped[str] = mapped_column(String(10), nullable=False)
     lat: Mapped[float] = mapped_column(Float)
@@ -114,7 +114,7 @@ class ExternalWeather(Base):
 class ExternalCurrency(Base):
     __tablename__ = "external_currencies"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
     base_currency: Mapped[str] = mapped_column(String(10), nullable=False)
     target_currency: Mapped[str] = mapped_column(String(10), nullable=False)
     rate: Mapped[float] = mapped_column(Float, nullable=False)
@@ -126,7 +126,7 @@ class ExternalCurrency(Base):
 class ExternalHoliday(Base):
     __tablename__ = "external_holidays"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
     country_code: Mapped[str] = mapped_column(String(10), index=True, nullable=False)
     holiday_date: Mapped[date] = mapped_column(Date, nullable=False)
     holiday_name: Mapped[str] = mapped_column(String(150), nullable=False)
@@ -138,7 +138,7 @@ class ExternalHoliday(Base):
 class ExternalPortStatus(Base):
     __tablename__ = "external_port_status"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
     port_code: Mapped[str] = mapped_column(String(30), index=True, nullable=False)
     port_name: Mapped[str] = mapped_column(String(100), nullable=False)
     country_code: Mapped[str] = mapped_column(String(10), nullable=False)

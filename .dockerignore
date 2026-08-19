@@ -1,0 +1,12 @@
+.git
+.github
+.venv
+node_modules
+dist
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.log
+.DS_Store
+Thumbs.db

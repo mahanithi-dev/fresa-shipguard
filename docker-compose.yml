@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  shipguard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: shipguard-app
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:////app/backend/shipguard.db
+      - JWT_SECRET=shipguard-prod-jwt-secret-key
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - NVIDIA_API_KEY=${NVIDIA_API_KEY:-}
+    volumes:
+      - shipguard-data:/app/backend
+    restart: unless-stopped
+
+volumes:
+  shipguard-data:

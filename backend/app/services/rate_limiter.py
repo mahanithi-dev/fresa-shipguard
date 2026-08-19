@@ -7,6 +7,7 @@ from fastapi import Depends, HTTPException, Request, Response, status
 from app.config import get_settings
 from app.deps import get_current_user
 from app.entities import User
+from app.services.security import log_security_event
 
 
 class AIRateLimiter:
@@ -16,10 +17,15 @@ class AIRateLimiter:
         self._requests: Dict[str, List[float]] = defaultdict(list)
         self._lock = Lock()
 
-    def _clean_old(self, key: str, now: float):
-        """Remove timestamps older than 24 hours (86,400 seconds)."""
-        cutoff = now - 86400.0
+    def reset(self):
+        with self._lock:
+            self._requests.clear()
+
+    def _clean_old(self, key: str, now: float, window_seconds: float = 86400.0):
+        """Remove timestamps older than window_seconds."""
+        cutoff = now - window_seconds
         self._requests[key] = [t for t in self._requests[key] if t > cutoff]
+
 
     def is_rate_limited(self, key: str) -> Tuple[bool, int, int, int, int, int, int, int]:
         """Check if request key is rate limited across minute, hour, and day windows.
@@ -70,9 +76,7 @@ class AIRateLimiter:
             return False, remaining_min - 1, remaining_hr - 1, remaining_day - 1, limit_min, limit_hr, limit_day, 0
 
     def check_and_record_provider_quota(self, provider: str) -> bool:
-        """Check if specific AI provider (gemini / nvidia) is within daily quota.
-        If allowed, records timestamp and returns True. If limit reached, returns False.
-        """
+        """Check if specific AI provider (gemini / nvidia) is within daily quota."""
         settings = get_settings()
         now = time.time()
         key = f"provider:{provider.lower()}"
@@ -142,7 +146,45 @@ class AIRateLimiter:
             }
 
 
+class GenericSlidingRateLimiter:
+    """Sliding-window rate limiter for generic endpoints (auth, external sync, reports)."""
+
+    def __init__(self):
+        self._requests: Dict[str, List[float]] = defaultdict(list)
+        self._lock = Lock()
+
+    def reset(self):
+        with self._lock:
+            self._requests.clear()
+
+    def check(self, key: str, limit_per_minute: int, limit_per_hour: int) -> Tuple[bool, int]:
+
+        now = time.time()
+        with self._lock:
+            cutoff = now - 3600.0
+            self._requests[key] = [t for t in self._requests[key] if t > cutoff]
+            timestamps = self._requests[key]
+
+            count_min = sum(1 for t in timestamps if t > now - 60.0)
+            count_hr = len(timestamps)
+
+            if count_min >= limit_per_minute:
+                min_timestamps = [t for t in timestamps if t > now - 60.0]
+                oldest = min(min_timestamps) if min_timestamps else now
+                retry_after = max(1, int(60.0 - (now - oldest)))
+                return True, retry_after
+
+            if count_hr >= limit_per_hour:
+                oldest = min(timestamps) if timestamps else now
+                retry_after = max(1, int(3600.0 - (now - oldest)))
+                return True, retry_after
+
+            self._requests[key].append(now)
+            return False, 0
+
+
 ai_rate_limiter = AIRateLimiter()
+generic_rate_limiter = GenericSlidingRateLimiter()
 
 
 def check_ai_rate_limit(
@@ -164,8 +206,46 @@ def check_ai_rate_limit(
 
     if is_limited:
         response.headers["Retry-After"] = str(retry_after)
+        log_security_event("RATE_LIMIT_EXCEEDED", f"AI rate limit reached for {rate_key}", client_ip=client_ip, user_identifier=user.email if user else rate_key)
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=f"AI Rate Limit Exceeded ({limit_min}/min, {limit_day}/day). Please wait {retry_after} second(s) before making additional AI calls to protect API key quotas.",
+            detail=f"AI Rate Limit Exceeded ({limit_min}/min, {limit_day}/day). Please wait {retry_after} second(s) before making additional AI calls.",
             headers={"Retry-After": str(retry_after)}
         )
+
+
+def check_auth_rate_limit(request: Request, response: Response):
+    """Rate limits public authentication attempts to mitigate brute-force and credential stuffing."""
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    settings = get_settings()
+    limit_min = getattr(settings, "auth_rate_limit_per_minute", 10)
+    limit_hr = getattr(settings, "auth_rate_limit_per_hour", 60)
+
+    key = f"auth_ip:{client_ip}"
+    is_limited, retry_after = generic_rate_limiter.check(key, limit_per_minute=limit_min, limit_per_hour=limit_hr)
+    if is_limited:
+        response.headers["Retry-After"] = str(retry_after)
+        log_security_event("AUTH_RATE_LIMIT_EXCEEDED", f"Authentication rate limit exceeded for IP {client_ip}", client_ip=client_ip)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Too many authentication attempts. Please wait {retry_after} seconds before trying again.",
+            headers={"Retry-After": str(retry_after)}
+        )
+
+
+def check_sync_rate_limit(request: Request, response: Response):
+    """Rate limits telemetry sync triggers to prevent third-party API exhaustion."""
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    settings = get_settings()
+    limit_min = getattr(settings, "sync_rate_limit_per_minute", 5)
+
+    key = f"sync_ip:{client_ip}"
+    is_limited, retry_after = generic_rate_limiter.check(key, limit_per_minute=limit_min, limit_per_hour=30)
+    if is_limited:
+        response.headers["Retry-After"] = str(retry_after)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Telemetry sync rate limit exceeded. Please wait {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
+

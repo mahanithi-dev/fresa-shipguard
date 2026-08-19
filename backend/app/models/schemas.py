@@ -4,8 +4,15 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class LoginRequest(BaseModel):
-    email: str
-    password: str
+    email: str = Field(..., min_length=3, max_length=150)
+    password: str = Field(..., min_length=1, max_length=128)
+
+
+class RegisterRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    email: str = Field(..., min_length=3, max_length=150)
+    password: str = Field(..., min_length=8, max_length=128)
+    role: str = Field(default="OPS_USER", max_length=20)
 
 
 class TokenResponse(BaseModel):
@@ -33,15 +40,15 @@ class RouteOut(BaseModel):
 
 
 class ShipmentBase(BaseModel):
-    shipment_ref: str
-    carrier_id: int
-    route_id: int
-    mode: str
-    cargo_type: str
+    shipment_ref: str = Field(..., min_length=1, max_length=30)
+    carrier_id: int = Field(..., ge=1)
+    route_id: int = Field(..., ge=1)
+    mode: str = Field(..., min_length=2, max_length=10)
+    cargo_type: str = Field(..., min_length=1, max_length=50)
     etd: date
     eta: date
     actual_arrival: date | None = None
-    status: str = "BOOKED"
+    status: str = Field(default="BOOKED", max_length=20)
 
     @model_validator(mode="after")
     def check_dates(self):
@@ -51,18 +58,25 @@ class ShipmentBase(BaseModel):
 
 
 class ShipmentCreate(ShipmentBase):
-    pass
+    container_no: str | None = Field(default=None, max_length=50)
+    vessel_name: str | None = Field(default=None, max_length=100)
+    disruption_event: str | None = Field(default=None, max_length=255)
+    consignee: str | None = Field(default=None, max_length=100)
 
 
 class ShipmentUpdate(BaseModel):
-    carrier_id: int | None = None
-    route_id: int | None = None
-    mode: str | None = None
-    cargo_type: str | None = None
+    carrier_id: int | None = Field(default=None, ge=1)
+    route_id: int | None = Field(default=None, ge=1)
+    mode: str | None = Field(default=None, max_length=10)
+    cargo_type: str | None = Field(default=None, max_length=50)
     etd: date | None = None
     eta: date | None = None
     actual_arrival: date | None = None
-    status: str | None = None
+    status: str | None = Field(default=None, max_length=20)
+    container_no: str | None = Field(default=None, max_length=50)
+    vessel_name: str | None = Field(default=None, max_length=100)
+    disruption_event: str | None = Field(default=None, max_length=255)
+    consignee: str | None = Field(default=None, max_length=100)
 
     @model_validator(mode="after")
     def check_dates(self):
@@ -72,9 +86,10 @@ class ShipmentUpdate(BaseModel):
 
 
 class Factor(BaseModel):
-    factor: str
-    value: str | None = None
-    impact: str
+    factor: str = Field(..., max_length=100)
+    value: str | None = Field(default=None, max_length=255)
+    impact: str = Field(..., max_length=50)
+    source: str | None = Field(default=None, max_length=100)
 
 
 class RiskScoreOut(BaseModel):
@@ -151,3 +166,4 @@ class ModelMetrics(BaseModel):
     roc_auc: float
     target_definition: str
     leakage_guardrail: str
+

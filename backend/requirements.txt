@@ -8,7 +8,8 @@ python-multipart>=0.0.20
 SQLAlchemy>=2.0.42
 # oracledb==3.3.0  # optional: install separately when connecting to Oracle
 joblib>=1.5.1
-# Optional for a fuller offline ML training script under Python 3.11/3.12:
-# scikit-learn==1.7.1
 scikit-learn>=1.3.0
 pandas>=2.2.0
+httpx>=0.27.0
+pytest>=8.0.0
+pytest-asyncio>=0.23.0

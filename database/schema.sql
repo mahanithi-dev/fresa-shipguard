@@ -78,9 +78,9 @@ CREATE TABLE routes (
     route_id          NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     origin_port       VARCHAR2(80) NOT NULL,
     dest_port         VARCHAR2(80) NOT NULL,
-    mode              VARCHAR2(10) CHECK (mode IN ('AIR','SEA','LAND')),
+    "mode"            VARCHAR2(10) CHECK ("mode" IN ('AIR','SEA','LAND')),
     avg_transit_days  NUMBER(5,1),
-    CONSTRAINT uq_route UNIQUE (origin_port, dest_port, mode)
+    CONSTRAINT uq_route UNIQUE (origin_port, dest_port, "mode")
 );
 
 -- ============================================================
@@ -92,17 +92,20 @@ CREATE TABLE shipments (
     shipment_ref      VARCHAR2(30) UNIQUE NOT NULL,
     carrier_id        NUMBER REFERENCES carriers(carrier_id),
     route_id          NUMBER REFERENCES routes(route_id),
-    mode              VARCHAR2(10) CHECK (mode IN ('AIR','SEA','LAND')),
+    "mode"            VARCHAR2(10) CHECK ("mode" IN ('AIR','SEA','LAND')),
     cargo_type        VARCHAR2(50),
     etd               DATE NOT NULL,
     eta               DATE NOT NULL,
     actual_arrival    DATE,
     status            VARCHAR2(20) DEFAULT 'BOOKED'
                       CHECK (status IN ('BOOKED','IN_TRANSIT','DELIVERED','DELAYED')),
+    container_no      VARCHAR2(50),
+    vessel_name       VARCHAR2(100),
+    disruption_event  VARCHAR2(255),
+    consignee         VARCHAR2(100),
     created_at        TIMESTAMP DEFAULT SYSTIMESTAMP,
     CONSTRAINT ck_eta_ge_etd CHECK (eta >= etd)
 );
-
 -- ============================================================
 -- 4. SHIPMENT_HISTORY
 -- ============================================================
@@ -139,6 +142,56 @@ CREATE TABLE users (
     email         VARCHAR2(150) UNIQUE NOT NULL,
     password_hash VARCHAR2(255) NOT NULL,
     role          VARCHAR2(20) DEFAULT 'OPS_USER'
+);
+
+-- ============================================================
+-- 7. EXTERNAL TELEMETRY & INTELLIGENCE TABLES
+-- ============================================================
+
+CREATE TABLE external_weather (
+    id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    port_name VARCHAR2(100) NOT NULL,
+    country_code VARCHAR2(10) NOT NULL,
+    lat NUMBER,
+    lon NUMBER,
+    temperature_c NUMBER,
+    wind_speed_kmh NUMBER,
+    precipitation_mm NUMBER,
+    weather_condition VARCHAR2(100),
+    is_severe NUMBER(1) DEFAULT 0,
+    data_source VARCHAR2(100) DEFAULT 'Open-Meteo API',
+    updated_at TIMESTAMP DEFAULT SYSTIMESTAMP
+);
+
+CREATE TABLE external_currencies (
+    id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    base_currency VARCHAR2(10) NOT NULL,
+    target_currency VARCHAR2(10) NOT NULL,
+    rate NUMBER NOT NULL,
+    volatility_pct NUMBER DEFAULT 0.0,
+    data_source VARCHAR2(100) DEFAULT 'Frankfurter FX API',
+    updated_at TIMESTAMP DEFAULT SYSTIMESTAMP
+);
+
+CREATE TABLE external_holidays (
+    id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    country_code VARCHAR2(10) NOT NULL,
+    holiday_date DATE NOT NULL,
+    holiday_name VARCHAR2(150) NOT NULL,
+    is_port_closure NUMBER(1) DEFAULT 0,
+    data_source VARCHAR2(100) DEFAULT 'Nager.Date API',
+    updated_at TIMESTAMP DEFAULT SYSTIMESTAMP
+);
+
+CREATE TABLE external_port_status (
+    id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    port_code VARCHAR2(30) NOT NULL,
+    port_name VARCHAR2(100) NOT NULL,
+    country_code VARCHAR2(10) NOT NULL,
+    congestion_level VARCHAR2(20) DEFAULT 'LOW',
+    avg_vessel_wait_hours NUMBER DEFAULT 4.0,
+    data_source VARCHAR2(100) DEFAULT 'Global Port Intelligence',
+    updated_at TIMESTAMP DEFAULT SYSTIMESTAMP
 );
 
 -- ============================================================
