@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import CheckConstraint, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -35,23 +35,25 @@ class Shipment(Base):
     __tablename__ = "shipments"
     __table_args__ = (
         CheckConstraint("eta >= etd", name="chk_eta_after_etd"),
+        Index("idx_shipments_carrier_actual", "carrier_id", "actual_arrival"),
+        Index("idx_shipments_route_actual", "route_id", "actual_arrival"),
     )
 
     shipment_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     shipment_ref: Mapped[str] = mapped_column(String(30), unique=True, nullable=False)
-    carrier_id: Mapped[int] = mapped_column(ForeignKey("carriers.carrier_id"))
-    route_id: Mapped[int] = mapped_column(ForeignKey("routes.route_id"))
-    mode: Mapped[str] = mapped_column(String(10), nullable=False)
+    carrier_id: Mapped[int] = mapped_column(ForeignKey("carriers.carrier_id"), index=True)
+    route_id: Mapped[int] = mapped_column(ForeignKey("routes.route_id"), index=True)
+    mode: Mapped[str] = mapped_column(String(10), index=True, nullable=False)
     cargo_type: Mapped[str] = mapped_column(String(50))
     etd: Mapped[date] = mapped_column(Date, nullable=False)
-    eta: Mapped[date] = mapped_column(Date, nullable=False)
+    eta: Mapped[date] = mapped_column(Date, index=True, nullable=False)
     actual_arrival: Mapped[date | None] = mapped_column(Date)
-    status: Mapped[str] = mapped_column(String(20), default="BOOKED")
+    status: Mapped[str] = mapped_column(String(20), index=True, default="BOOKED")
     container_no: Mapped[str | None] = mapped_column(String(50), nullable=True)
     vessel_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     disruption_event: Mapped[str | None] = mapped_column(String(255), nullable=True)
     consignee: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, index=True, default=datetime.utcnow)
 
     carrier: Mapped[Carrier] = relationship(back_populates="shipments")
     route: Mapped[Route] = relationship(back_populates="shipments")
@@ -61,9 +63,12 @@ class Shipment(Base):
 
 class ShipmentHistory(Base):
     __tablename__ = "shipment_history"
+    __table_args__ = (
+        Index("idx_history_shipment_event", "shipment_id", "event_ts"),
+    )
 
     history_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    shipment_id: Mapped[int] = mapped_column(ForeignKey("shipments.shipment_id"))
+    shipment_id: Mapped[int] = mapped_column(ForeignKey("shipments.shipment_id"), index=True)
     event_type: Mapped[str] = mapped_column(String(30))
     event_ts: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     delay_days: Mapped[float] = mapped_column(Float, default=0)
@@ -76,10 +81,10 @@ class RiskScore(Base):
 
     shipment_id: Mapped[int] = mapped_column(ForeignKey("shipments.shipment_id"), primary_key=True)
     risk_score: Mapped[float] = mapped_column(Float, nullable=False)
-    risk_tier: Mapped[str] = mapped_column(String(10), nullable=False)
+    risk_tier: Mapped[str] = mapped_column(String(10), index=True, nullable=False)
     top_factors: Mapped[str] = mapped_column(Text, nullable=False)
     recommendation: Mapped[str] = mapped_column(String(300), nullable=False)
-    scored_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    scored_at: Mapped[datetime] = mapped_column(DateTime, index=True, default=datetime.utcnow)
 
     shipment: Mapped[Shipment] = relationship(back_populates="risk_score")
 
@@ -96,6 +101,9 @@ class User(Base):
 
 class ExternalWeather(Base):
     __tablename__ = "external_weather"
+    __table_args__ = (
+        Index("idx_weather_severe_port", "is_severe", "port_name"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     port_name: Mapped[str] = mapped_column(String(100), index=True, nullable=False)
@@ -128,7 +136,7 @@ class ExternalHoliday(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     country_code: Mapped[str] = mapped_column(String(10), index=True, nullable=False)
-    holiday_date: Mapped[date] = mapped_column(Date, nullable=False)
+    holiday_date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
     holiday_name: Mapped[str] = mapped_column(String(150), nullable=False)
     is_port_closure: Mapped[bool] = mapped_column(Integer, default=0)
     data_source: Mapped[str] = mapped_column(String(100), default="Nager.Date API")

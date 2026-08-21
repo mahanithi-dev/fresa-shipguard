@@ -159,6 +159,16 @@ def generate_ai_shipments(db: Session, count: int = 160) -> int:
     today = date.today()
     created_count = 0
 
+    from app.entities import ExternalCurrency, ExternalHoliday, ExternalPortStatus, ExternalWeather, RiskScore
+
+    context_cache = {
+        "weather": db.query(ExternalWeather).all(),
+        "ports": db.query(ExternalPortStatus).all(),
+        "holidays": db.query(ExternalHoliday).all(),
+        "currency": db.query(ExternalCurrency).filter_by(base_currency="USD", target_currency="INR").first(),
+        "existing_risks": {},
+    }
+
     # Generate shipments
     for i in range(1, count + 1):
         code = random.choice(list(carrier_map.keys()))
@@ -210,6 +220,8 @@ def generate_ai_shipments(db: Session, count: int = 160) -> int:
             disruption_event=disruption,
             consignee=consignee,
         )
+        shipment.route = route
+        shipment.carrier = carrier
         db.add(shipment)
         db.flush()
 
@@ -241,8 +253,8 @@ def generate_ai_shipments(db: Session, count: int = 160) -> int:
                 delay_days=max(0, (actual - eta).days)
             ))
 
-        # Calculate ML Risk Score
-        score_shipment(db, shipment)
+        # Calculate ML Risk Score in batch mode
+        score_shipment(db, shipment, context_cache=context_cache, commit=False)
         created_count += 1
 
     db.commit()

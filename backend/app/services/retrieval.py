@@ -1,5 +1,5 @@
 from typing import List, Tuple
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload
 from app.entities import Shipment
 
 try:
@@ -40,7 +40,18 @@ def _build_text_for_shipment(s: Shipment) -> str:
 
 def build_index(db: Session):
     global _vectorizer, _doc_texts, _doc_ids, _tfidf_matrix
-    q = db.query(Shipment).all()
+    q = (
+        db.query(Shipment)
+        .options(
+            joinedload(Shipment.carrier),
+            joinedload(Shipment.route),
+            joinedload(Shipment.risk_score),
+            selectinload(Shipment.history),
+        )
+        .order_by(Shipment.created_at.desc())
+        .limit(200)
+        .all()
+    )
     texts = []
     ids = []
     for s in q:

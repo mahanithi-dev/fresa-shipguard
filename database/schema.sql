@@ -218,11 +218,41 @@ CREATE INDEX idx_shipments_eta
 CREATE INDEX idx_shipments_status
     ON shipments(status);
 
+CREATE INDEX idx_shipments_mode
+    ON shipments("mode");
+
+CREATE INDEX idx_shipments_created_at
+    ON shipments(created_at);
+
+CREATE INDEX idx_shipments_carrier
+    ON shipments(carrier_id);
+
+CREATE INDEX idx_shipments_route
+    ON shipments(route_id);
+
+CREATE INDEX idx_shipments_carrier_actual
+    ON shipments(carrier_id, actual_arrival);
+
+CREATE INDEX idx_shipments_route_actual
+    ON shipments(route_id, actual_arrival);
+
 CREATE INDEX idx_shipment_history_shipment
     ON shipment_history(shipment_id);
 
+CREATE INDEX idx_history_shipment_event
+    ON shipment_history(shipment_id, event_ts);
+
 CREATE INDEX idx_risk_scores_scored_at
     ON risk_scores(scored_at);
+
+CREATE INDEX idx_risk_scores_tier
+    ON risk_scores(risk_tier);
+
+CREATE INDEX idx_holidays_date
+    ON external_holidays(holiday_date);
+
+CREATE INDEX idx_weather_severe_port
+    ON external_weather(is_severe, port_name);
     
     
 

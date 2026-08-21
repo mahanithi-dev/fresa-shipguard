@@ -43,24 +43,32 @@ def list_shipments(
     risk_tier: str | None = None,
     mode: str | None = None,
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=500),
+    page_size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
 ):
-    query = db.query(Shipment).options(
-        joinedload(Shipment.carrier),
-        joinedload(Shipment.route),
-        joinedload(Shipment.risk_score)
-    )
+    base_query = db.query(Shipment)
     if status:
-        query = query.filter(Shipment.status == status.strip().upper())
+        base_query = base_query.filter(Shipment.status == status.strip().upper())
     if mode:
-        query = query.filter(Shipment.mode == mode.strip().upper())
+        base_query = base_query.filter(Shipment.mode == mode.strip().upper())
     if risk_tier:
-        query = query.join(RiskScore, isouter=True).filter(RiskScore.risk_tier == risk_tier.strip().upper())
+        base_query = base_query.join(RiskScore, Shipment.shipment_id == RiskScore.shipment_id).filter(
+            RiskScore.risk_tier == risk_tier.strip().upper()
+        )
 
-    total = query.count()
+    total = base_query.count()
     offset = (page - 1) * page_size
-    shipments = query.order_by(Shipment.created_at.desc()).offset(offset).limit(page_size).all()
+    shipments = (
+        base_query.options(
+            joinedload(Shipment.carrier),
+            joinedload(Shipment.route),
+            joinedload(Shipment.risk_score),
+        )
+        .order_by(Shipment.created_at.desc())
+        .offset(offset)
+        .limit(page_size)
+        .all()
+    )
 
     items = [_summary(shipment) for shipment in shipments]
     return PaginatedShipments(items=items, total=total, page=page, page_size=page_size)

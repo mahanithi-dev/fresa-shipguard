@@ -17,14 +17,14 @@ def carrier_on_time_pct_as_of(db: Session, shipment: Shipment) -> float:
     Only shipments with `actual_arrival` before `shipment.etd` are considered.
     Returns a percentage in [0, 100].
     """
-    rows = db.query(Shipment).filter(
+    rows = db.query(Shipment.actual_arrival, Shipment.eta).filter(
         Shipment.carrier_id == shipment.carrier_id,
         Shipment.actual_arrival.isnot(None),
         Shipment.actual_arrival < shipment.etd,
     ).all()
     if not rows:
         return float(getattr(shipment.carrier, "on_time_pct_hist", 75.0) or 75.0)
-    on_time = sum(1 for s in rows if (s.actual_arrival - s.eta).days <= 1)
+    on_time = sum(1 for (actual_arrival, eta) in rows if (actual_arrival - eta).days <= 1)
     return round((on_time / len(rows)) * 100.0, 2)
 
 
@@ -35,16 +35,15 @@ def route_avg_delay_days_as_of(db: Session, shipment: Shipment) -> float:
     Returns a non-negative float; defaults to route.avg_transit_days deviation 0.0
     if no prior records exist.
     """
-    q = db.query(Shipment).filter(
+    rows = db.query(Shipment.actual_arrival, Shipment.eta).filter(
         Shipment.route_id == shipment.route_id,
         Shipment.actual_arrival.isnot(None),
         Shipment.actual_arrival < shipment.etd,
-    )
-    total = q.count()
-    if total == 0:
+    ).all()
+    if not rows:
         return 0.0
     # compute average (actual_arrival - eta).days
-    delays = [max(0, (s.actual_arrival - s.eta).days) for s in q.all()]
+    delays = [max(0, (actual_arrival - eta).days) for (actual_arrival, eta) in rows]
     return float(sum(delays)) / float(len(delays))
 
 
@@ -57,7 +56,7 @@ def transit_days_planned(shipment: Shipment) -> int:
 
 
 def transit_vs_route_avg(db: Session, shipment: Shipment) -> float:
-    route = db.query(Route).filter(Route.route_id == shipment.route_id).first()
+    route = shipment.route if getattr(shipment, "route", None) else db.get(Route, shipment.route_id)
     if not route:
         return 0.0
     return transit_days_planned(shipment) - (route.avg_transit_days or 0)

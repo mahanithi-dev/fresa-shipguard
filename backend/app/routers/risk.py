@@ -12,6 +12,9 @@ from app.seed import MODEL_METRICS
 from app.services.scoring_service import risk_to_dict, score_active_shipments, score_shipment
 
 
+from sqlalchemy import func
+
+
 router = APIRouter(prefix="/risk", tags=["risk"], dependencies=[Depends(get_current_user)])
 
 
@@ -30,12 +33,20 @@ def score_batch(db: Session = Depends(get_db)):
 
 @router.get("/summary", response_model=RiskSummary)
 def risk_summary(db: Session = Depends(get_db)):
-    risks = db.query(RiskScore).all()
+    tier_counts = dict(
+        db.query(RiskScore.risk_tier, func.count(RiskScore.shipment_id))
+        .group_by(RiskScore.risk_tier)
+        .all()
+    )
+    high = tier_counts.get("HIGH", 0)
+    medium = tier_counts.get("MEDIUM", 0)
+    low = tier_counts.get("LOW", 0)
+    total = sum(tier_counts.values())
     return RiskSummary(
-        high=sum(1 for risk in risks if risk.risk_tier == "HIGH"),
-        medium=sum(1 for risk in risks if risk.risk_tier == "MEDIUM"),
-        low=sum(1 for risk in risks if risk.risk_tier == "LOW"),
-        total=len(risks),
+        high=high,
+        medium=medium,
+        low=low,
+        total=total,
     )
 
 

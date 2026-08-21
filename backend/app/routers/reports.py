@@ -13,14 +13,18 @@ from app.entities import Carrier, RiskScore, Route, Shipment
 router = APIRouter(prefix="/reports", tags=["reports"], dependencies=[Depends(get_current_user)])
 
 
+from sqlalchemy import case, func
+
+
 @router.get("/export/csv")
 def export_shipments_csv(
     status: Optional[str] = None,
     risk_tier: Optional[str] = None,
     mode: Optional[str] = None,
+    limit: int = 5000,
     db: Session = Depends(get_db),
 ):
-    """Export filtered shipments as a structured CSV file."""
+    """Export filtered shipments as a structured CSV file with a safety upper bound."""
     query = db.query(Shipment).options(
         joinedload(Shipment.carrier),
         joinedload(Shipment.route),
@@ -34,7 +38,9 @@ def export_shipments_csv(
     if risk_tier:
         query = query.join(RiskScore, isouter=True).filter(RiskScore.risk_tier == risk_tier)
 
-    shipments = query.order_by(Shipment.created_at.desc()).all()
+    # Prevent unbounded CSV memory blowout
+    max_export = min(max(1, limit), 10000)
+    shipments = query.order_by(Shipment.created_at.desc()).limit(max_export).all()
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -102,94 +108,127 @@ def export_shipments_csv(
     )
 
 
-
 @router.get("/summary")
 def get_report_summary(db: Session = Depends(get_db)):
-    """Generate executive logistics intelligence report summary."""
-    shipments = db.query(Shipment).options(
-        joinedload(Shipment.carrier),
-        joinedload(Shipment.route),
-        joinedload(Shipment.risk_score)
-    ).all()
+    """Generate executive logistics intelligence report summary using direct SQL aggregations."""
+    # 1. Total and Status metrics
+    status_counts = dict(
+        db.query(Shipment.status, func.count(Shipment.shipment_id))
+        .group_by(Shipment.status)
+        .all()
+    )
+    total_count = sum(status_counts.values())
+    delivered_count = status_counts.get("DELIVERED", 0)
+    delayed_count = status_counts.get("DELAYED", 0)
+    in_transit_count = status_counts.get("IN_TRANSIT", 0)
+    booked_count = status_counts.get("BOOKED", 0)
+    hold_count = status_counts.get("EXCEPTIONAL_HOLD", 0)
 
-    total_count = len(shipments)
-    delivered_count = sum(1 for s in shipments if s.status == "DELIVERED")
-    delayed_count = sum(1 for s in shipments if s.status == "DELAYED")
-    in_transit_count = sum(1 for s in shipments if s.status == "IN_TRANSIT")
-    booked_count = sum(1 for s in shipments if s.status == "BOOKED")
-    hold_count = sum(1 for s in shipments if s.status == "EXCEPTIONAL_HOLD")
+    # 2. Risk breakdown metrics
+    risk_stats = db.query(
+        func.count(RiskScore.shipment_id),
+        func.sum(case((RiskScore.risk_tier == "HIGH", 1), else_=0)),
+        func.sum(case((RiskScore.risk_tier == "MEDIUM", 1), else_=0)),
+        func.sum(case((RiskScore.risk_tier == "LOW", 1), else_=0)),
+        func.avg(RiskScore.risk_score),
+    ).first()
 
-    high_risk_count = 0
-    med_risk_count = 0
-    low_risk_count = 0
-    total_risk_score_sum = 0
-    scored_count = 0
+    scored_count = risk_stats[0] or 0
+    high_risk_count = risk_stats[1] or 0
+    med_risk_count = risk_stats[2] or 0
+    low_risk_count = risk_stats[3] or 0
+    avg_risk_score_raw = risk_stats[4] or 0.0
+    avg_risk_pct = round(avg_risk_score_raw * 100) if scored_count > 0 else 0
 
-    high_risk_exceptions = []
+    # 3. Top high risk exceptions (bounded eager query)
+    high_risk_shipments = (
+        db.query(Shipment)
+        .options(
+            joinedload(Shipment.carrier),
+            joinedload(Shipment.route),
+            joinedload(Shipment.risk_score),
+        )
+        .join(RiskScore, Shipment.shipment_id == RiskScore.shipment_id)
+        .filter(RiskScore.risk_tier == "HIGH")
+        .order_by(RiskScore.risk_score.desc())
+        .limit(12)
+        .all()
+    )
 
-    for s in shipments:
-        if s.risk_score:
-            score = s.risk_score.risk_score or 0
-            tier = s.risk_score.risk_tier or "UNSCORED"
-            total_risk_score_sum += score
-            scored_count += 1
+    high_risk_exceptions = [
+        {
+            "id": s.shipment_id,
+            "ref": s.shipment_ref,
+            "carrier": s.carrier.carrier_name if s.carrier else "Unknown",
+            "route": f"{s.route.origin_port} -> {s.route.dest_port}" if s.route else "Unknown",
+            "mode": s.mode,
+            "eta": str(s.eta) if s.eta else "",
+            "status": s.status,
+            "score_pct": round((s.risk_score.risk_score or 0) * 100) if s.risk_score else 0,
+            "disruption": getattr(s, "disruption_event", None),
+            "consignee": getattr(s, "consignee", None),
+        }
+        for s in high_risk_shipments
+    ]
 
-            if tier == "HIGH":
-                high_risk_count += 1
-                high_risk_exceptions.append({
-                    "id": s.shipment_id,
-                    "ref": s.shipment_ref,
-                    "carrier": s.carrier.carrier_name if s.carrier else "Unknown",
-                    "route": f"{s.route.origin_port} -> {s.route.dest_port}" if s.route else "Unknown",
-                    "mode": s.mode,
-                    "eta": str(s.eta) if s.eta else "",
-                    "status": s.status,
-                    "score_pct": round(score * 100),
-                    "disruption": getattr(s, "disruption_event", None),
-                    "consignee": getattr(s, "consignee", None),
-                })
-            elif tier == "MEDIUM":
-                med_risk_count += 1
-            elif tier == "LOW":
-                low_risk_count += 1
+    # 4. Carrier scorecards via SQL group aggregation
+    carrier_rows = (
+        db.query(
+            Carrier.carrier_id,
+            Carrier.carrier_name,
+            Carrier.carrier_code,
+            Carrier.on_time_pct_hist,
+            func.count(Shipment.shipment_id).label("total_shipments"),
+            func.sum(case((Shipment.status == "DELAYED", 1), else_=0)).label("delayed_count"),
+            func.sum(case((RiskScore.risk_tier == "HIGH", 1), else_=0)).label("high_risk_count"),
+        )
+        .join(Shipment, Carrier.carrier_id == Shipment.carrier_id)
+        .outerjoin(RiskScore, Shipment.shipment_id == RiskScore.shipment_id)
+        .group_by(Carrier.carrier_id, Carrier.carrier_name, Carrier.carrier_code, Carrier.on_time_pct_hist)
+        .order_by(func.count(Shipment.shipment_id).desc())
+        .all()
+    )
 
-    avg_risk_pct = round((total_risk_score_sum / scored_count) * 100) if scored_count > 0 else 0
+    carrier_scorecards = [
+        {
+            "carrier_name": row.carrier_name,
+            "carrier_code": row.carrier_code,
+            "on_time_pct": round((getattr(row, "on_time_pct_hist", 0) or 0) * 100, 1),
+            "total_shipments": row.total_shipments or 0,
+            "delayed_count": row.delayed_count or 0,
+            "high_risk_count": row.high_risk_count or 0,
+        }
+        for row in carrier_rows
+    ]
 
-    # Carrier scorecards
-    carriers = db.query(Carrier).all()
-    carrier_scorecards = []
-    for c in carriers:
-        c_shipments = [s for s in shipments if s.carrier_id == c.carrier_id]
-        if c_shipments:
-            c_high = sum(1 for s in c_shipments if s.risk_score and s.risk_score.risk_tier == "HIGH")
-            c_delayed = sum(1 for s in c_shipments if s.status == "DELAYED")
-            carrier_scorecards.append({
-                "carrier_name": c.carrier_name,
-                "carrier_code": c.carrier_code,
-                "on_time_pct": round((getattr(c, "on_time_pct_hist", 0) or 0) * 100, 1),
-                "total_shipments": len(c_shipments),
-                "delayed_count": c_delayed,
-                "high_risk_count": c_high,
-            })
+    # 5. Route trade lane analysis via SQL group aggregation
+    route_rows = (
+        db.query(
+            Route.origin_port,
+            Route.dest_port,
+            Route.mode,
+            Route.avg_transit_days,
+            func.count(Shipment.shipment_id).label("total_shipments"),
+            func.sum(case((RiskScore.risk_tier == "HIGH", 1), else_=0)).label("high_risk_count"),
+        )
+        .join(Shipment, Route.route_id == Shipment.route_id)
+        .outerjoin(RiskScore, Shipment.shipment_id == RiskScore.shipment_id)
+        .group_by(Route.route_id, Route.origin_port, Route.dest_port, Route.mode, Route.avg_transit_days)
+        .order_by(func.sum(case((RiskScore.risk_tier == "HIGH", 1), else_=0)).desc())
+        .limit(8)
+        .all()
+    )
 
-    carrier_scorecards.sort(key=lambda x: x["total_shipments"], reverse=True)
-
-    # Route trade lane analysis
-    routes = db.query(Route).all()
-    route_analytics = []
-    for r in routes:
-        r_shipments = [s for s in shipments if s.route_id == r.route_id]
-        if r_shipments:
-            r_high = sum(1 for s in r_shipments if s.risk_score and s.risk_score.risk_tier == "HIGH")
-            route_analytics.append({
-                "route_str": f"{r.origin_port} -> {r.dest_port}",
-                "mode": r.mode,
-                "avg_transit_days": r.avg_transit_days,
-                "total_shipments": len(r_shipments),
-                "high_risk_count": r_high,
-            })
-
-    route_analytics.sort(key=lambda x: x["high_risk_count"], reverse=True)
+    route_analytics = [
+        {
+            "route_str": f"{row.origin_port} -> {row.dest_port}",
+            "mode": row.mode,
+            "avg_transit_days": row.avg_transit_days,
+            "total_shipments": row.total_shipments or 0,
+            "high_risk_count": row.high_risk_count or 0,
+        }
+        for row in route_rows
+    ]
 
     return {
         "generated_at": datetime.now().isoformat(),
@@ -205,7 +244,7 @@ def get_report_summary(db: Session = Depends(get_db)):
             "low_risk": low_risk_count,
             "avg_risk_score_pct": avg_risk_pct,
         },
-        "high_risk_exceptions": high_risk_exceptions[:12],
+        "high_risk_exceptions": high_risk_exceptions,
         "carrier_scorecards": carrier_scorecards,
-        "route_analytics": route_analytics[:8],
+        "route_analytics": route_analytics,
     }

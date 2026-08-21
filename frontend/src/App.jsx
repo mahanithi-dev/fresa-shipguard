@@ -1,7 +1,19 @@
-import React, { useState } from "react";
-import LandingPage from "./pages/LandingPage";
-import Login from "./pages/Login";
-import Dashboard from "./pages/Dashboard";
+import React, { lazy, Suspense, useState } from "react";
+
+const LandingPage = lazy(() => import("./pages/LandingPage"));
+const Login = lazy(() => import("./pages/Login"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+
+function RouteLoadingFallback() {
+  return (
+    <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "#f8fafc", color: "#64748b", fontFamily: "sans-serif" }}>
+      <div style={{ textAlign: "center" }}>
+        <div style={{ width: 28, height: 28, border: "3px solid #e2e8f0", borderTopColor: "#1e40af", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 12px" }} />
+        <div style={{ fontSize: 13, fontWeight: 600, color: "#0f172a" }}>Loading ShipGuard...</div>
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem("shipguard-token"));
@@ -28,7 +40,7 @@ export default function App() {
   }
 
   return (
-    <>
+    <Suspense fallback={<RouteLoadingFallback />}>
       {route === "landing" && (
         <LandingPage onEnter={handleEnterShipGuard} />
       )}
@@ -42,6 +54,6 @@ export default function App() {
           <Login onLogin={handleLogin} onNavigateHome={() => setRoute("landing")} />
         )
       )}
-    </>
+    </Suspense>
   );
 }

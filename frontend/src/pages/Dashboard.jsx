@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle, Anchor, Boxes, CalendarClock, FileText, Globe,
   LayoutDashboard, Loader2, LogOut, PackagePlus, RefreshCcw, Search,
@@ -7,12 +7,22 @@ import {
 import { api, API_BASE } from "../api/client";
 import RiskBadge from "../components/RiskBadge";
 import RiskMeter from "../components/RiskMeter";
-import IntakeModal from "../components/IntakeModal";
-import ReportModal from "../components/ReportModal";
-import ShipmentDrawer from "../components/ShipmentDrawer";
-import ChatWidget from "../components/ChatWidget";
-import LanesView from "../components/LanesView";
-import ReportsView from "../components/ReportsView";
+
+const IntakeModal = lazy(() => import("../components/IntakeModal"));
+const ReportModal = lazy(() => import("../components/ReportModal"));
+const ShipmentDrawer = lazy(() => import("../components/ShipmentDrawer"));
+const ChatWidget = lazy(() => import("../components/ChatWidget"));
+const LanesView = lazy(() => import("../components/LanesView"));
+const ReportsView = lazy(() => import("../components/ReportsView"));
+
+function ComponentFallback() {
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 40, color: "#64748b", gap: 8 }}>
+      <Loader2 size={18} className="spin" />
+      <span>Loading module...</span>
+    </div>
+  );
+}
 
 export default function Dashboard({ token, onLogout, onNavigateHome }) {
   const client = useMemo(() => api(token), [token]);
@@ -375,17 +385,21 @@ export default function Dashboard({ token, onLogout, onNavigateHome }) {
 
           {/* View Tab Switcher / Content Area */}
           {activeTab === "reports" ? (
-            <ReportsView
-              reportSummary={reportSummary}
-              exportLoading={exportLoading}
-              downloadCSV={downloadCSV}
-              onOpenReportModal={() => {
-                loadReportSummary();
-                setShowReportModal(true);
-              }}
-            />
+            <Suspense fallback={<ComponentFallback />}>
+              <ReportsView
+                reportSummary={reportSummary}
+                exportLoading={exportLoading}
+                downloadCSV={downloadCSV}
+                onOpenReportModal={() => {
+                  loadReportSummary();
+                  setShowReportModal(true);
+                }}
+              />
+            </Suspense>
           ) : activeTab === "external" ? (
-            <LanesView externalIntel={externalIntel} />
+            <Suspense fallback={<ComponentFallback />}>
+              <LanesView externalIntel={externalIntel} />
+            </Suspense>
           ) : (
             <section className="erp-card">
               {/* Toolbar */}
@@ -516,48 +530,62 @@ export default function Dashboard({ token, onLogout, onNavigateHome }) {
       </div>
 
       {/* Slide-over Inspector Drawer */}
-      <ShipmentDrawer
-        selected={selected}
-        onClose={() => setSelected(null)}
-        client={client}
-        showToast={showToast}
-      />
+      <Suspense fallback={null}>
+        {selected && (
+          <ShipmentDrawer
+            selected={selected}
+            onClose={() => setSelected(null)}
+            client={client}
+            showToast={showToast}
+          />
+        )}
+      </Suspense>
 
       {/* New Shipment Modal */}
-      <IntakeModal
-        client={client}
-        carriers={carriers}
-        routes={routes}
-        isOpen={intakeOpen}
-        onClose={() => setIntakeOpen(false)}
-        onCreated={() => {
-          load();
-          showToast("New shipment created and risk calculated!");
-        }}
-      />
+      <Suspense fallback={null}>
+        {intakeOpen && (
+          <IntakeModal
+            client={client}
+            carriers={carriers}
+            routes={routes}
+            isOpen={intakeOpen}
+            onClose={() => setIntakeOpen(false)}
+            onCreated={() => {
+              load();
+              showToast("New shipment created and risk calculated!");
+            }}
+          />
+        )}
+      </Suspense>
 
       {/* Executive PDF Risk Report Modal */}
-      <ReportModal
-        isOpen={showReportModal}
-        onClose={() => setShowReportModal(false)}
-        reportSummary={reportSummary}
-      />
+      <Suspense fallback={null}>
+        {showReportModal && (
+          <ReportModal
+            isOpen={showReportModal}
+            onClose={() => setShowReportModal(false)}
+            reportSummary={reportSummary}
+          />
+        )}
+      </Suspense>
 
       {/* Floating AI Assistant Widget */}
-      <ChatWidget
-        client={client}
-        shipments={shipments}
-        showToast={showToast}
-        onOpenShipmentByRef={(ref) => {
-          const match = shipments.find((s) => s.shipment_ref.toLowerCase() === ref.toLowerCase());
-          if (match) {
-            openShipment(match.shipment_id);
-            showToast(`Opened inspection drawer for ${ref}`);
-          } else {
-            showToast(`Shipment ${ref} not in current active page view`);
-          }
-        }}
-      />
+      <Suspense fallback={null}>
+        <ChatWidget
+          client={client}
+          shipments={shipments}
+          showToast={showToast}
+          onOpenShipmentByRef={(ref) => {
+            const match = shipments.find((s) => s.shipment_ref.toLowerCase() === ref.toLowerCase());
+            if (match) {
+              openShipment(match.shipment_id);
+              showToast(`Opened inspection drawer for ${ref}`);
+            } else {
+              showToast(`Shipment ${ref} not in current active page view`);
+            }
+          }}
+        />
+      </Suspense>
     </div>
   );
 }

@@ -13,7 +13,7 @@ router = APIRouter(tags=["reference"], dependencies=[Depends(get_current_user)])
 @router.get("/carriers", response_model=list[CarrierOut])
 def list_carriers(
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=500),
+    page_size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db)
 ):
     query = db.query(Carrier).order_by(Carrier.carrier_name)
@@ -25,7 +25,7 @@ def list_carriers(
 def list_routes(
     mode: str | None = None,
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=500),
+    page_size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db)
 ):
     query = db.query(Route)

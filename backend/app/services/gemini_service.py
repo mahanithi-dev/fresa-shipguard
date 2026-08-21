@@ -19,28 +19,42 @@ except ImportError:
     genai = None
 
 
+from sqlalchemy import case, func
+from sqlalchemy.orm import joinedload
+
+
 def _build_logistics_context(db: Session) -> str:
     """Build live summary context of active shipments, high-risk items, carriers, and routes."""
     try:
-        shipments = db.query(Shipment).all()
-        carriers = db.query(Carrier).all()
-        routes = db.query(Route).all()
+        total_shipments = db.query(func.count(Shipment.shipment_id)).scalar() or 0
+        risk_counts = db.query(
+            func.sum(case((RiskScore.risk_tier == "HIGH", 1), else_=0)),
+            func.sum(case((RiskScore.risk_tier == "MEDIUM", 1), else_=0)),
+            func.sum(case((RiskScore.risk_tier == "LOW", 1), else_=0)),
+        ).first()
 
-        high_risk_count = 0
-        med_risk_count = 0
-        low_risk_count = 0
+        high_risk_count = risk_counts[0] or 0
+        med_risk_count = risk_counts[1] or 0
+        low_risk_count = risk_counts[2] or 0
+
+        recent_shipments_db = (
+            db.query(Shipment)
+            .options(
+                joinedload(Shipment.carrier),
+                joinedload(Shipment.route),
+                joinedload(Shipment.risk_score),
+            )
+            .order_by(Shipment.created_at.desc())
+            .limit(10)
+            .all()
+        )
+        carriers = db.query(Carrier).order_by(Carrier.on_time_pct_hist.desc()).limit(5).all()
+        routes = db.query(Route).limit(5).all()
+
         recent_shipments = []
-
-        for s in shipments[:15]:
+        for s in recent_shipments_db:
             tier = s.risk_score.risk_tier if s.risk_score else "UNSCORED"
             score = round((s.risk_score.risk_score or 0) * 100) if s.risk_score else 0
-            if tier == "HIGH":
-                high_risk_count += 1
-            elif tier == "MEDIUM":
-                med_risk_count += 1
-            elif tier == "LOW":
-                low_risk_count += 1
-
             carrier_name = s.carrier.carrier_name if s.carrier else "Unknown"
             route_str = f"{s.route.origin_port}->{s.route.dest_port}" if s.route else "Unknown"
             recent_shipments.append(
@@ -49,17 +63,17 @@ def _build_logistics_context(db: Session) -> str:
 
         carrier_summary = [
             f"{c.carrier_name} (Code: {c.carrier_code}, On-time rate: {round((getattr(c, 'on_time_pct_hist', 0) or 0) * 100)}%)"
-            for c in carriers[:5]
+            for c in carriers
         ]
-        route_summary = [f"{r.origin_port} -> {r.dest_port} ({r.mode}, avg {r.avg_transit_days} days)" for r in routes[:5]]
+        route_summary = [f"{r.origin_port} -> {r.dest_port} ({r.mode}, avg {r.avg_transit_days} days)" for r in routes]
 
         context = (
             f"Active Operations Summary:\n"
-            f"- Total Active Shipments: {len(shipments)}\n"
+            f"- Total Active Shipments: {total_shipments}\n"
             f"- Risk Breakdown: High={high_risk_count}, Medium={med_risk_count}, Low={low_risk_count}\n"
             f"\nTop Carriers:\n" + "\n".join(f"  • {cs}" for cs in carrier_summary) +
             f"\n\nKey Routes:\n" + "\n".join(f"  • {rs}" for rs in route_summary) +
-            f"\n\nRecent Active Shipments Snapshot:\n" + "\n".join(recent_shipments[:10])
+            f"\n\nRecent Active Shipments Snapshot:\n" + "\n".join(recent_shipments)
         )
         return context
     except Exception as e:
@@ -176,7 +190,16 @@ def generate_logistics_chat_fallback(query: str, db: Session) -> str:
     ref_match = re.search(r"(shp[-\w\d]+)", q_lower)
     if ref_match:
         target_ref = ref_match.group(1).upper()
-        s = db.query(Shipment).filter(Shipment.shipment_ref.ilike(f"%{target_ref}%")).first()
+        s = (
+            db.query(Shipment)
+            .options(
+                joinedload(Shipment.carrier),
+                joinedload(Shipment.route),
+                joinedload(Shipment.risk_score),
+            )
+            .filter(Shipment.shipment_ref.ilike(f"%{target_ref}%"))
+            .first()
+        )
         if s:
             tier = s.risk_score.risk_tier if s.risk_score else "UNSCORED"
             score = round((s.risk_score.risk_score or 0) * 100) if s.risk_score else 0
@@ -223,7 +246,18 @@ def generate_logistics_chat_fallback(query: str, db: Session) -> str:
 
     # 3. Check for high risk or risk summary queries
     if "high risk" in q_lower or "risk" in q_lower or "alert" in q_lower or "summarize" in q_lower or "exception" in q_lower:
-        high_shipments = db.query(Shipment).join(RiskScore).filter(RiskScore.risk_tier == "HIGH").limit(5).all()
+        high_shipments = (
+            db.query(Shipment)
+            .options(
+                joinedload(Shipment.carrier),
+                joinedload(Shipment.route),
+                joinedload(Shipment.risk_score),
+            )
+            .join(RiskScore)
+            .filter(RiskScore.risk_tier == "HIGH")
+            .limit(5)
+            .all()
+        )
         if high_shipments:
             lines = [f"• **{s.shipment_ref}** ({s.carrier.carrier_name if s.carrier else 'Carrier'}) — {s.route.origin_port} -> {s.route.dest_port} (ETA: {s.eta}, Score: {round((s.risk_score.risk_score or 0)*100)}%)" for s in high_shipments]
             return "🚨 **High-Risk Exception Overview:**\n\nCurrently, the following critical shipments require proactive intervention:\n\n" + "\n".join(lines) + "\n\n**Recommended Action:** Contact carriers to verify container milestone timestamps and prepare alternate feeder connections."

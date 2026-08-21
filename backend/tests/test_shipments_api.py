@@ -60,3 +60,44 @@ def test_shipment_detail_retrieval(client, auth_headers):
     assert detail["shipment_id"] == shipment_id
     assert "risk" in detail
     assert "history" in detail
+
+
+def test_risk_summary_aggregation(client, auth_headers):
+    res = client.get("/api/v1/risk/summary", headers=auth_headers)
+    assert res.status_code == 200
+    data = res.json()
+    assert "high" in data
+    assert "medium" in data
+    assert "low" in data
+    assert "total" in data
+    assert data["total"] >= 0
+
+
+def test_report_summary_aggregation(client, auth_headers):
+    res = client.get("/api/v1/reports/summary", headers=auth_headers)
+    assert res.status_code == 200
+    data = res.json()
+    assert "metrics" in data
+    assert "total_shipments" in data["metrics"]
+    assert "carrier_scorecards" in data
+    assert "route_analytics" in data
+    assert "high_risk_exceptions" in data
+
+
+def test_csv_export_bounded_limit(client, auth_headers):
+    res = client.get("/api/v1/reports/export/csv?limit=5", headers=auth_headers)
+    assert res.status_code == 200
+    assert res.headers["content-type"].startswith("text/csv")
+    lines = res.text.strip().split("\n")
+    # Header + at most 5 data rows
+    assert len(lines) <= 6
+
+
+def test_pagination_max_bounds(client, auth_headers):
+    # Valid page_size <= 200
+    res_valid = client.get("/api/v1/shipments?page=1&page_size=200", headers=auth_headers)
+    assert res_valid.status_code == 200
+
+    # Invalid page_size > 200 should be rejected
+    res_invalid = client.get("/api/v1/shipments?page=1&page_size=201", headers=auth_headers)
+    assert res_invalid.status_code == 422

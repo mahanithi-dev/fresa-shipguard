@@ -575,6 +575,8 @@ textarea:focus {
 .erp-table-responsive {
   overflow-x: auto;
   width: 100%;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 380px;
 }
 
 .erp-table {
@@ -818,6 +820,8 @@ textarea:focus {
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 20px;
   margin-bottom: 24px;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 420px;
 }
 
 .erp-intel-card {

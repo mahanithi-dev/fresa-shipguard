@@ -12,10 +12,10 @@ router = APIRouter(prefix="/external-intelligence", tags=["external-intelligence
 
 @router.get("/summary")
 def get_external_summary(db: Session = Depends(get_db)):
-    weather = db.query(ExternalWeather).order_by(ExternalWeather.is_severe.desc(), ExternalWeather.port_name).all()
-    currencies = db.query(ExternalCurrency).all()
-    holidays = db.query(ExternalHoliday).order_by(ExternalHoliday.holiday_date).all()
-    ports = db.query(ExternalPortStatus).order_by(ExternalPortStatus.avg_vessel_wait_hours.desc()).all()
+    weather = db.query(ExternalWeather).order_by(ExternalWeather.is_severe.desc(), ExternalWeather.port_name).limit(50).all()
+    currencies = db.query(ExternalCurrency).limit(50).all()
+    holidays = db.query(ExternalHoliday).order_by(ExternalHoliday.holiday_date).limit(50).all()
+    ports = db.query(ExternalPortStatus).order_by(ExternalPortStatus.avg_vessel_wait_hours.desc()).limit(50).all()
 
     last_updated = None
     if weather:

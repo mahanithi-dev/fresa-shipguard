@@ -34,11 +34,17 @@ def _sigmoid(x: float) -> float:
     return 1 / (1 + math.exp(-x))
 
 
-def score_shipment(db: Session, shipment: Shipment) -> RiskScore:
+def score_shipment(
+    db: Session,
+    shipment: Shipment,
+    context_cache: dict | None = None,
+    commit: bool = True
+) -> RiskScore:
     route_delay = route_avg_delay_days_as_of(db, shipment)
     carrier_on_time = carrier_on_time_pct_as_of(db, shipment)
     planned_days = max((shipment.eta - shipment.etd).days, 1)
-    route_avg = float(shipment.route.avg_transit_days or planned_days)
+    route_obj = shipment.route if getattr(shipment, "route", None) else None
+    route_avg = float((route_obj.avg_transit_days if route_obj else None) or planned_days)
     transit_vs_avg = planned_days - route_avg
     month = shipment.etd.month
 
@@ -81,14 +87,46 @@ def score_shipment(db: Session, shipment: Shipment) -> RiskScore:
 
     # Integrate External Real-World Intelligence Factors
     external_risk_delta = 0.0
+    dest_port_str = route_obj.dest_port if route_obj else ""
+    origin_port_str = route_obj.origin_port if route_obj else ""
+    dest_name = dest_port_str.split("(")[0].strip().lower()
+    origin_name = origin_port_str.split("(")[0].strip().lower()
+
+    if context_cache:
+        weather_list = context_cache.get("weather", [])
+        port_list = context_cache.get("ports", [])
+        holiday_list = context_cache.get("holidays", [])
+        curr = context_cache.get("currency")
+        
+        target_w = next(
+            (w for w in weather_list if dest_name in w.port_name.lower() or origin_name in w.port_name.lower()),
+            None
+        )
+        port_stat = next(
+            (p for p in port_list if dest_name in p.port_name.lower()),
+            None
+        )
+        h_win_start = shipment.eta - timedelta(days=2)
+        h_win_end = shipment.eta + timedelta(days=2)
+        holiday = next(
+            (h for h in holiday_list if h_win_start <= h.holiday_date <= h_win_end),
+            None
+        )
+    else:
+        # Single-record lookup
+        w_dest = db.query(ExternalWeather).filter(ExternalWeather.port_name.ilike(f"%{dest_name}%")).first() if dest_name else None
+        w_orig = db.query(ExternalWeather).filter(ExternalWeather.port_name.ilike(f"%{origin_name}%")).first() if origin_name else None
+        target_w = w_dest or w_orig
+        port_stat = db.query(ExternalPortStatus).filter(ExternalPortStatus.port_name.ilike(f"%{dest_name}%")).first() if dest_name else None
+        h_win_start = shipment.eta - timedelta(days=2)
+        h_win_end = shipment.eta + timedelta(days=2)
+        holiday = db.query(ExternalHoliday).filter(
+            ExternalHoliday.holiday_date >= h_win_start,
+            ExternalHoliday.holiday_date <= h_win_end
+        ).first()
+        curr = db.query(ExternalCurrency).filter_by(base_currency="USD", target_currency="INR").first()
 
     # 1. Weather Factor (Origin / Destination)
-    dest_name = shipment.route.dest_port.split("(")[0].strip()
-    origin_name = shipment.route.origin_port.split("(")[0].strip()
-    w_dest = db.query(ExternalWeather).filter(ExternalWeather.port_name.ilike(f"%{dest_name}%")).first()
-    w_orig = db.query(ExternalWeather).filter(ExternalWeather.port_name.ilike(f"%{origin_name}%")).first()
-    target_w = w_dest or w_orig
-
     if target_w:
         if target_w.is_severe or target_w.wind_speed_kmh > 40.0:
             external_risk_delta += 0.12
@@ -108,7 +146,6 @@ def score_shipment(db: Session, shipment: Shipment) -> RiskScore:
             })
 
     # 2. Port Congestion Factor
-    port_stat = db.query(ExternalPortStatus).filter(ExternalPortStatus.port_name.ilike(f"%{dest_name}%")).first()
     if port_stat:
         if port_stat.congestion_level in ["HIGH", "ELEVATED"]:
             external_risk_delta += 0.15
@@ -120,12 +157,6 @@ def score_shipment(db: Session, shipment: Shipment) -> RiskScore:
             })
 
     # 3. Destination Public Holiday Impact
-    h_win_start = shipment.eta - timedelta(days=2)
-    h_win_end = shipment.eta + timedelta(days=2)
-    holiday = db.query(ExternalHoliday).filter(
-        ExternalHoliday.holiday_date >= h_win_start,
-        ExternalHoliday.holiday_date <= h_win_end
-    ).first()
     if holiday:
         external_risk_delta += 0.05
         factors.append({
@@ -136,7 +167,6 @@ def score_shipment(db: Session, shipment: Shipment) -> RiskScore:
         })
 
     # 4. Currency Volatility Impact
-    curr = db.query(ExternalCurrency).filter_by(base_currency="USD", target_currency="INR").first()
     if curr and curr.volatility_pct > 1.0:
         external_risk_delta += 0.02
         factors.append({
@@ -150,24 +180,53 @@ def score_shipment(db: Session, shipment: Shipment) -> RiskScore:
     final_score = round(min(0.99, max(0.01, base_score + external_risk_delta)), 4)
     tier = tier_for_score(final_score)
 
-    existing = db.get(RiskScore, shipment.shipment_id)
+    if context_cache and "existing_risks" in context_cache:
+        existing = context_cache["existing_risks"].get(shipment.shipment_id)
+    else:
+        existing = db.get(RiskScore, shipment.shipment_id)
+
     if existing is None:
         existing = RiskScore(shipment_id=shipment.shipment_id)
         db.add(existing)
+        if context_cache and "existing_risks" in context_cache:
+            context_cache["existing_risks"][shipment.shipment_id] = existing
+
     existing.risk_score = final_score
     existing.risk_tier = tier
     existing.top_factors = json.dumps(factors)
     existing.recommendation = RECOMMENDATIONS[tier]
     existing.scored_at = datetime.utcnow()
-    db.commit()
-    db.refresh(existing)
+
+    if commit:
+        db.commit()
+        db.refresh(existing)
     return existing
 
 
 def score_active_shipments(db: Session) -> int:
-    shipments = db.query(Shipment).filter(Shipment.status.in_(["BOOKED", "IN_TRANSIT", "DELAYED"])).all()
+    from sqlalchemy.orm import joinedload
+    shipments = (
+        db.query(Shipment)
+        .options(joinedload(Shipment.carrier), joinedload(Shipment.route))
+        .filter(Shipment.status.in_(["BOOKED", "IN_TRANSIT", "DELAYED"]))
+        .all()
+    )
+    if not shipments:
+        return 0
+
+    # Prefetch telemetry tables once for the batch
+    context_cache = {
+        "weather": db.query(ExternalWeather).all(),
+        "ports": db.query(ExternalPortStatus).all(),
+        "holidays": db.query(ExternalHoliday).all(),
+        "currency": db.query(ExternalCurrency).filter_by(base_currency="USD", target_currency="INR").first(),
+        "existing_risks": {r.shipment_id: r for r in db.query(RiskScore).all()},
+    }
+
     for shipment in shipments:
-        score_shipment(db, shipment)
+        score_shipment(db, shipment, context_cache=context_cache, commit=False)
+
+    db.commit()
     return len(shipments)
 
 
