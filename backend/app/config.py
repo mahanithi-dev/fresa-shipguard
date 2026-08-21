@@ -22,9 +22,11 @@ class Settings(BaseSettings):
     # Optional NVIDIA/OpenAI-compatible API URL and model
     nvidia_api_url: str | None = None
     nvidia_model: str | None = None
-    # Google Gemini API configuration
+    # Google Gemini & OAuth configuration
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-2.0-flash"
+    google_client_id: str | None = None
+    google_client_secret: str | None = None
     # Rate Limiting configuration for AI Endpoints (Gemini & NVIDIA)
     ai_rate_limit_per_minute: int = 15
     ai_rate_limit_per_hour: int = 200

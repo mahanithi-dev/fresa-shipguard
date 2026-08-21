@@ -1,4 +1,5 @@
-import React, { lazy, Suspense, useState } from "react";
+import React, { lazy, Suspense, useEffect, useState } from "react";
+import { api } from "./api/client";
 
 const LandingPage = lazy(() => import("./pages/LandingPage"));
 const Login = lazy(() => import("./pages/Login"));
@@ -18,6 +19,37 @@ function RouteLoadingFallback() {
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem("shipguard-token"));
   const [route, setRoute] = useState("landing");
+  const [authError, setAuthError] = useState("");
+
+  // Handle Google OAuth Redirect Response (e.g. from accounts.google.com/#id_token=...)
+  useEffect(() => {
+    const hash = window.location.hash ? window.location.hash.substring(1) : "";
+    const search = window.location.search ? window.location.search.substring(1) : "";
+    const params = new URLSearchParams(hash || search);
+
+    const errorParam = params.get("error");
+    if (errorParam) {
+      window.history.replaceState(null, "", window.location.pathname);
+      setAuthError(errorParam === "access_denied" ? "Google sign-in was cancelled." : `Google sign-in error: ${errorParam}`);
+      setRoute("login");
+      return;
+    }
+
+    const idToken = params.get("id_token") || params.get("credential");
+    if (idToken) {
+      window.history.replaceState(null, "", window.location.pathname);
+      api().request("/auth/google", {
+        method: "POST",
+        body: JSON.stringify({ id_token: idToken }),
+      }).then((data) => {
+        handleLogin(data.access_token);
+      }).catch((err) => {
+        console.error("Google authentication error:", err);
+        setAuthError(err.message || "Google authentication failed.");
+        setRoute("login");
+      });
+    }
+  }, []);
 
   function handleLogin(nextToken) {
     localStorage.setItem("shipguard-token", nextToken);
@@ -45,13 +77,21 @@ export default function App() {
         <LandingPage onEnter={handleEnterShipGuard} />
       )}
       {route === "login" && (
-        <Login onLogin={handleLogin} onNavigateHome={() => setRoute("landing")} />
+        <Login
+          initialError={authError}
+          onLogin={handleLogin}
+          onNavigateHome={() => { setAuthError(""); setRoute("landing"); }}
+        />
       )}
       {route === "app" && (
         token ? (
           <Dashboard token={token} onLogout={handleLogout} onNavigateHome={() => setRoute("landing")} />
         ) : (
-          <Login onLogin={handleLogin} onNavigateHome={() => setRoute("landing")} />
+          <Login
+            initialError={authError}
+            onLogin={handleLogin}
+            onNavigateHome={() => { setAuthError(""); setRoute("landing"); }}
+          />
         )
       )}
     </Suspense>
