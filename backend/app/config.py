@@ -28,11 +28,11 @@ class Settings(BaseSettings):
     google_client_id: str | None = None
     google_client_secret: str | None = None
     # Rate Limiting configuration for AI Endpoints (Gemini & NVIDIA)
-    ai_rate_limit_per_minute: int = 15
-    ai_rate_limit_per_hour: int = 200
-    ai_rate_limit_per_day: int = 1000
-    gemini_daily_quota: int = 500
-    nvidia_daily_quota: int = 500
+    ai_rate_limit_per_minute: int = 30
+    ai_rate_limit_per_hour: int = 300
+    ai_rate_limit_per_day: int = 1500
+    gemini_daily_quota: int = 1000
+    nvidia_daily_quota: int = 1000
     # Auth & API Rate Limiting
     auth_rate_limit_per_minute: int = 10
     auth_rate_limit_per_hour: int = 60

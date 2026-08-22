@@ -282,23 +282,31 @@ export default function ChatWidget({ client, onOpenShipmentByRef, shipments = []
                   {/* Assistant Message Actions & Suggestions */}
                   {m.role === "assistant" && (
                     <div className="erp-chat-bubble-footer">
-                      <button
-                        className="erp-chat-copy-btn"
-                        onClick={() => handleCopy(m.content, idx)}
-                        title="Copy text"
-                      >
-                        {copiedIdx === idx ? (
-                          <>
-                            <Check size={12} style={{ color: "#10b981" }} />
-                            <span>Copied</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy size={12} />
-                            <span>Copy</span>
-                          </>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", marginBottom: 4 }}>
+                        <button
+                          className="erp-chat-copy-btn"
+                          onClick={() => handleCopy(m.content, idx)}
+                          title="Copy text"
+                        >
+                          {copiedIdx === idx ? (
+                            <>
+                              <Check size={12} style={{ color: "#10b981" }} />
+                              <span>Copied</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy size={12} />
+                              <span>Copy</span>
+                            </>
+                          )}
+                        </button>
+
+                        {m.model && (
+                          <span style={{ fontSize: 10, color: "#64748b", fontWeight: 500 }}>
+                            ⚡ {m.model}
+                          </span>
                         )}
-                      </button>
+                      </div>
 
                       {m.suggestions && m.suggestions.length > 0 && (
                         <div className="erp-chat-suggestions-container">

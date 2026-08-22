@@ -31,12 +31,15 @@ COPY backend/ /app/backend/
 # Copy compiled frontend assets from Stage 1 so FastAPI serves SPA
 COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 
+# Create persistent data directory for SQLite / artifacts
+RUN mkdir -p /app/data
+
 # Set working directory to backend
 WORKDIR /app/backend
 
 # Configure runtime environment
 ENV PYTHONPATH=/app/backend \
-    DATABASE_URL=sqlite:////app/backend/shipguard.db \
+    DATABASE_URL=sqlite:////app/data/shipguard.db \
     JWT_SECRET=shipguard-prod-jwt-secret-key \
     PORT=8000
 
@@ -44,3 +47,4 @@ EXPOSE 8000
 
 # Start FastAPI application
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+

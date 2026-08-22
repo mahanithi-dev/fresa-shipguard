@@ -8,14 +8,24 @@ services:
     container_name: shipguard-app
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
-      - DATABASE_URL=sqlite:////app/backend/shipguard.db
-      - JWT_SECRET=shipguard-prod-jwt-secret-key
+      - DATABASE_URL=${DATABASE_URL:-sqlite:////app/data/shipguard.db}
+      - JWT_SECRET=${JWT_SECRET:-shipguard-prod-jwt-secret-key}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - NVIDIA_API_KEY=${NVIDIA_API_KEY:-}
+      - PORT=8000
     volumes:
-      - shipguard-data:/app/backend
+      - shipguard-data:/app/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 volumes:
   shipguard-data:
+
