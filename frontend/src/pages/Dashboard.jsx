@@ -310,25 +310,28 @@ export default function Dashboard({ token, onLogout, onNavigateHome }) {
                 <RefreshCcw size={15} className={loading ? "spin" : ""} /> Sync Live APIs
               </button>
 
-              <button
-                className="secondary-btn"
-                disabled={loading}
-                onClick={async () => {
-                  if (window.confirm("Generate fresh realistic AI shipment records with container IDs and disruptions?")) {
-                    setLoading(true);
-                    try {
-                      const res = await client.request("/admin/generate-ai-data", { method: "POST" });
-                      await load();
-                      showToast(res.message || "Synthesized AI shipment records successfully!");
-                    } catch (e) {
-                      setError(e.message);
-                      setLoading(false);
+              {/* Seed AI Data feature preserved but hidden from frontend UI */}
+              {false && (
+                <button
+                  className="secondary-btn"
+                  disabled={loading}
+                  onClick={async () => {
+                    if (window.confirm("Generate fresh realistic AI shipment records with container IDs and disruptions?")) {
+                      setLoading(true);
+                      try {
+                        const res = await client.request("/admin/generate-ai-data", { method: "POST" });
+                        await load();
+                        showToast(res.message || "Synthesized AI shipment records successfully!");
+                      } catch (e) {
+                        setError(e.message);
+                        setLoading(false);
+                      }
                     }
-                  }
-                }}
-              >
-                <Sparkles size={15} color="#1e40af" /> Seed AI Data
-              </button>
+                  }}
+                >
+                  <Sparkles size={15} color="#1e40af" /> Seed AI Data
+                </button>
+              )}
 
               {activeTab === "worklist" && (
                 <button className="primary-btn" onClick={() => setIntakeOpen(true)}>
